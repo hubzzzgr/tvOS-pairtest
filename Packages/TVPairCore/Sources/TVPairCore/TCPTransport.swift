@@ -41,10 +41,13 @@ public final class TCPTransport: ByteTransport, @unchecked Sendable {
             sec_protocol_options_set_min_tls_protocol_version(options, .TLSv12)
             sec_protocol_options_set_max_tls_protocol_version(options, .TLSv12)
             // Public Security API. Support for these legacy PSK suites on iOS is experimental.
-            sec_protocol_options_append_tls_ciphersuite(options, .TLS_PSK_WITH_AES_256_CBC_SHA384)
-            sec_protocol_options_append_tls_ciphersuite(options, .TLS_PSK_WITH_AES_128_CBC_SHA)
+            // These IANA suites are absent from Apple's typed tls_ciphersuite_t enum.
+            // The older public API accepts SSLCipherSuite numeric identifiers. This
+            // configures an experiment; it does NOT establish runtime support.
+            sec_protocol_options_add_tls_ciphersuite(options, SSLCipherSuite(0x00af))
+            sec_protocol_options_add_tls_ciphersuite(options, SSLCipherSuite(0x008c))
             let keyData = key.withUnsafeBytes { DispatchData(bytes: $0) }
-            let identity = Data([0]).withUnsafeBytes { DispatchData(bytes: $0) }
+            let identity = DispatchData.empty // Empty PSK identity, as used by the reference.
             sec_protocol_options_add_pre_shared_key(options, keyData as __DispatchData, identity as __DispatchData)
             parameters = NWParameters(tls: tls, tcp: NWProtocolTCP.Options())
         } else { parameters = .tcp }

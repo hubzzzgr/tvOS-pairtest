@@ -5,7 +5,7 @@ import Darwin
 
 /// DNS-SD uses the system Bonjour implementation and needs no multicast entitlement.
 @MainActor
-public final class BonjourDiscovery: NSObject, ObservableObject, NetServiceBrowserDelegate, NetServiceDelegate {
+public final class BonjourDiscovery: NSObject, ObservableObject, @preconcurrency NetServiceBrowserDelegate, @preconcurrency NetServiceDelegate {
     @Published public private(set) var devices: [AppleTVDevice] = []
     @Published public private(set) var scanning = false
     @Published public private(set) var networkStatus = "Checking network…"

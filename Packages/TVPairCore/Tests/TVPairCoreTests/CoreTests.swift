@@ -108,6 +108,11 @@ final class CoreTests: XCTestCase {
         do { let _: Int = try await withCheckedThrowingContinuation { gate.install($0); gate.finish(.success(1)) }; XCTFail("Cancellation should win") }
         catch { XCTAssertTrue(error is CancellationError) }
     }
+    func testPSKOptionsCanBeConstructedWithoutPrivateFrameworks() throws {
+        let transport = TCPTransport(endpoint: try ConnectionEndpoint(host: "127.0.0.1", port: "1234"), preSharedKey: Data(repeating: 1, count: 32))
+        transport.cancel()
+        // Construction is not TLS negotiation evidence.
+    }
     static func record() -> PairingRecord {
         let key = Curve25519.Signing.PrivateKey()
         return PairingRecord(deviceName: "Fixture only", deviceIdentifier: "test-device", productType: "AppleTV-test", hostIdentifier: UUID().uuidString, privateKey: key.rawRepresentation, publicKey: key.publicKey.rawRepresentation, peerPublicKey: nil, peerIdentifier: nil, alternateIRK: Data(repeating: 1, count: 16), endpoint: nil)
