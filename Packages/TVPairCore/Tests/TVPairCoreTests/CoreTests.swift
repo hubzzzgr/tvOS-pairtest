@@ -113,6 +113,16 @@ final class CoreTests: XCTestCase {
         transport.cancel()
         // Construction is not TLS negotiation evidence.
     }
+    func testAdvertisementIdentityAgainstPublishedSipHashVectors() {
+        let key = Data(0..<16)
+        XCTAssertEqual(AdvertisementIdentity.tag(key: key, identifier: ""), Data([0xdb, 0x47, 0xdd, 0x0e, 0x0e, 0x31]))
+        let message = String(bytes: Array(UInt8(0)..<UInt8(15)), encoding: .utf8)!
+        XCTAssertEqual(AdvertisementIdentity.tag(key: key, identifier: message), Data([0xca, 0x61, 0x49, 0xbe, 0x45, 0xe5]))
+        var record = Self.record(); record.alternateIRK = key
+        let tag = AdvertisementIdentity.tag(key: key, identifier: "device").base64EncodedString()
+        XCTAssertTrue(AdvertisementIdentity.matches(record: record, identifier: "device", authTag: tag))
+        XCTAssertFalse(AdvertisementIdentity.matches(record: record, identifier: "different", authTag: tag))
+    }
     static func record() -> PairingRecord {
         let key = Curve25519.Signing.PrivateKey()
         return PairingRecord(deviceName: "Fixture only", deviceIdentifier: "test-device", productType: "AppleTV-test", hostIdentifier: UUID().uuidString, privateKey: key.rawRepresentation, publicKey: key.publicKey.rawRepresentation, peerPublicKey: nil, peerIdentifier: nil, alternateIRK: Data(repeating: 1, count: 16), endpoint: nil)

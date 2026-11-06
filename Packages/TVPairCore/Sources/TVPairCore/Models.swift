@@ -92,6 +92,8 @@ public struct AppleTVDevice: Identifiable, Equatable, Sendable {
     public var port: Int
     public var advertisedModel: String?
     public var resolutionError: Bool
+    public var advertisedIdentifier: String?
+    public var authenticationTag: String?
     public var endpoint: ConnectionEndpoint? {
         guard let host = hostname ?? addresses.first else { return nil }
         return try? ConnectionEndpoint(host: host, port: String(port))

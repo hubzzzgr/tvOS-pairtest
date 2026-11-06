@@ -20,12 +20,12 @@ struct PairingView: View {
                     }.frame(maxWidth: .infinity).padding(.vertical, 20)
                 }.listRowBackground(Color.clear)
                 if model.stage == .awaitingPIN && model.busy {
-                    Section("Code displayed on Apple TV") {
+                    Section {
                         SecureField("Six-digit code", text: $model.pin).keyboardType(.numberPad).textContentType(.oneTimeCode)
                             .font(.title.monospaced()).focused($pinFocused).onAppear { pinFocused = true }
                             .onChange(of: model.pin) { _, value in model.pin = String(value.filter { $0.isASCII && $0.isNumber }.prefix(6)) }
                         Button("Authenticate") { pinFocused = false; model.submitPIN() }.disabled(model.pin.count != 6)
-                    } footer: { Text("The protocol requested this code. It is never saved or included in diagnostic logs. Entry times out after 90 seconds.") }
+                    } header: { Text("Code displayed on Apple TV") } footer: { Text("The protocol requested this code. It is never saved or included in diagnostic logs. Entry times out after 90 seconds.") }
                 }
                 Section("Independent checks") { CheckList(checks: model.checks) }
                 if model.state.authenticated {

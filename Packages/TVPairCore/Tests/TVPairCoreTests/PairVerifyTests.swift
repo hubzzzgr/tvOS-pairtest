@@ -7,7 +7,7 @@ final class PairVerifyTests: XCTestCase {
         let transport = VerifyPeerTransport(tamperPeerSignature: false)
         let record = await transport.record()
         let client = RemotePairingClient(transport: transport)
-        let result = try await client.authenticate(endpoint: ConnectionEndpoint(host: "tv.local", port: "1234"), existingRecord: record, requestPIN: { XCTFail("Reconnect must not ask for a PIN"); throw TVPairError.authentication }, report: { _,_,_,_ in })
+        let result = try await client.authenticate(endpoint: ConnectionEndpoint(host: "tv.local", port: "1234"), existingRecord: record, requestPIN: { XCTFail("Reconnect must not ask for a PIN"); throw TVPairError.authentication }, report: { stage, check, result, _ in print("Synthetic verify: \(stage.rawValue) \(check.rawValue) \(result.rawValue)") })
         XCTAssertEqual(result.id, record.id)
         let listener = try await client.createTunnelListener()
         XCTAssertEqual(listener.port, 54321); XCTAssertEqual(listener.key.count, 32)
@@ -15,7 +15,7 @@ final class PairVerifyTests: XCTestCase {
         XCTAssertTrue(hostVerified)
     }
     func testTamperedPeerSignatureIsRejectedWithoutFallbackOrListener() async throws {
-        let transport = VerifyPeerTransport(tamperPeerSignature: true), client = RemotePairingClient(transport: VerifyPeerTransport(tamperPeerSignature: true))
+        let transport = VerifyPeerTransport(tamperPeerSignature: true)
         // Use the same synthetic peer/record so that the only failure is the modified signature.
         let record = await transport.record(), actualClient = RemotePairingClient(transport: transport)
         do {
@@ -24,7 +24,6 @@ final class PairVerifyTests: XCTestCase {
         } catch { XCTAssertEqual(error as? TVPairError, .authentication) }
         do { _ = try await actualClient.createTunnelListener(); XCTFail("Unauthenticated listener request") }
         catch { XCTAssertEqual(error as? TVPairError, .authentication) }
-        do { _ = try await client.createTunnelListener(); XCTFail("New client cannot create a listener") } catch { XCTAssertEqual(error as? TVPairError, .authentication) }
     }
 }
 

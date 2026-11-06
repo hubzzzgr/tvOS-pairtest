@@ -27,6 +27,9 @@ jobs:
           swift package --package-path Packages/TVPairCore resolve 2>&1 | tee artifacts/dependencies.log
           xcodebuild -resolvePackageDependencies -project TVPair.xcodeproj -scheme TVPair 2>&1 | tee -a artifacts/dependencies.log
       - name: Core unit and protocol tests
+        env:
+          SWIFT_BACKTRACE: enable=yes
+          NSUnbufferedIO: "YES"
         run: |
           set -o pipefail
           swift test --package-path Packages/TVPairCore 2>&1 | tee artifacts/tests.log
@@ -83,3 +86,15 @@ jobs:
             artifacts/*.png
             artifacts/*.xcresult
           retention-days: 14
+      - name: Collect test crash reports
+        if: failure()
+        run: |
+          mkdir -p artifacts/crash-reports
+          find "$HOME/Library/Logs/DiagnosticReports" -maxdepth 1 -name '*TVPair*' -exec cp {} artifacts/crash-reports/ \; 2>/dev/null || true
+      - name: Upload test crash reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: TVPair-test-crashes
+          path: artifacts/crash-reports/
+          if-no-files-found: ignore

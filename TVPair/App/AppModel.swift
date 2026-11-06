@@ -26,6 +26,7 @@ final class AppModel: ObservableObject {
     private var service: ServiceKind = .remotePairing
     private var started = Date()
     private var stageStart: [DiagnosticCheck: Date] = [:]
+    private var activeCheck: DiagnosticCheck?
     var stage: PairingStage { state.stage }
     var fullSuccess: Bool { state.completeSuccess && checks[.services] == .passed && checks[.information] == .passed }
     var summary: String {
@@ -65,7 +66,8 @@ final class AppModel: ObservableObject {
     func append(_ event: DiagnosticEvent) { events.append(event); if events.count > 1000 { events.removeFirst(events.count - 1000) } }
     private func log(_ check: DiagnosticCheck, _ result: CheckResult, _ text: String) {
         checks[check] = result
-        if result == .running { stageStart[check] = Date() }
+        if result == .running { stageStart[check] = Date(); activeCheck = check }
+        else if activeCheck == check { activeCheck = nil }
         append(DiagnosticEvent(operation: check, service: service, result: result, message: text, duration: stageStart[check].map { Date().timeIntervalSince($0) } ?? 0))
     }
     private func report(_ stage: PairingStage, _ check: DiagnosticCheck, _ result: CheckResult, _ text: String) {
@@ -76,7 +78,7 @@ final class AppModel: ObservableObject {
     func start(endpoint: ConnectionEndpoint, service: ServiceKind, discovered: Bool, recordID: UUID? = nil) {
         guard !busy else { return }
         busy = true; presentPairing = true; self.service = service; checks = [:]; state = PairingState()
-        information = DeviceInformation(); errorMessage = nil; lastSavedID = nil; pin = ""; started = Date(); stageStart = [:]
+        information = DeviceInformation(); errorMessage = nil; lastSavedID = nil; pin = ""; started = Date(); stageStart = [:]; activeCheck = nil
         log(.discovery, discovered ? .passed : .blocked, discovered ? "Selected a currently discovered service." : "Manual endpoint; Bonjour discovery was bypassed.")
         operation = Task { [weak self] in
             guard let self else { return }
@@ -118,21 +120,39 @@ final class AppModel: ObservableObject {
                 }
                 try Task.checkCancellation()
                 self.report(.openingTunnel, .tunnel, .running, "Requesting an authenticated TCP listener, then testing TLS-PSK and CDTunnel.")
-                let tunnel = try await TrustedTunnel.establish(endpoint: endpoint, session: client)
+                var trustedClient = client, trustedEndpoint = endpoint
+                if record == nil {
+                    // Pair-Setup endpoints may close after M6. Prove saved-record reuse
+                    // on a fresh connection before attempting any tunnel operation.
+                    transport.cancel()
+                    if service == .manualPairing, let regular = self.discovery.devices.first(where: {
+                        $0.service == .remotePairing && $0.endpoint != nil && AdvertisementIdentity.matches(record: authenticated, identifier: $0.advertisedIdentifier, authTag: $0.authenticationTag)
+                    }), let resolved = regular.endpoint {
+                        trustedEndpoint = resolved; self.service = .remotePairing
+                        self.log(.tunnel, .running, "Matched a regular Remote Pairing advertisement by its authentication tag. Full peer verification is still required.")
+                    }
+                    let reconnect = TCPTransport(endpoint: trustedEndpoint); self.activeTransport = reconnect
+                    trustedClient = RemotePairingClient(transport: reconnect)
+                    _ = try await trustedClient.authenticate(endpoint: trustedEndpoint, existingRecord: authenticated, requestPIN: { throw TVPairError.authentication }, report: { [weak self] _, check, result, text in
+                        await self?.report(.openingTunnel, check, result, text)
+                    })
+                }
+                let tunnel = try await TrustedTunnel.establish(endpoint: trustedEndpoint, session: trustedClient)
                 self.activeTransport = tunnel.transport
                 try self.state.acceptTunnel(); self.log(.tunnel, .passed, "The authenticated TLS-PSK connection completed a valid CDTunnel handshake.")
-                self.information = try await DeveloperServiceClient.inspect(tunnel: tunnel, hostIdentifier: authenticated.hostIdentifier, report: reporter)
+                self.information = try await DeveloperServiceClient.inspect(tunnel: tunnel, hostIdentifier: authenticated.hostIdentifier, report: reporter, updateInformation: { [weak self] value in await self?.receiveInformation(value) })
                 try Task.checkCancellation(); try self.state.move(to: .finished)
                 self.message = self.fullSuccess ? "Authentication, trusted tunnel, and a read-only developer-service request succeeded." : "The authenticated tunnel succeeded. Review the independent checks for developer-service limitations."
             } catch {
                 let safe = TVPairError.safe(error), cancelled = safe == .cancelled || Task.isCancelled
-                let failed = self.checks.first(where: { $0.value == .running })?.key ?? (self.state.authenticated ? .tunnel : .authentication)
+                let failed = self.activeCheck ?? (self.state.authenticated ? .tunnel : .authentication)
                 try? self.state.move(to: cancelled ? .cancelled : .failed)
                 self.errorMessage = cancelled ? nil : safe.localizedDescription; self.message = cancelled ? "The connection attempt was cancelled." : safe.localizedDescription
                 self.log(failed, cancelled ? .cancelled : .failed, self.message)
             }
         }
     }
+    private func receiveInformation(_ value: DeviceInformation) { information = value }
     private func waitForPIN() async throws -> String {
         try await withTaskCancellationHandler {
             try Task.checkCancellation()

@@ -11,7 +11,7 @@ public struct DeviceInformation: Sendable {
 }
 
 public enum DeveloperServiceClient {
-    public static func inspect(tunnel: TrustedTunnel, hostIdentifier: String, report: PairingReporter) async throws -> DeviceInformation {
+    public static func inspect(tunnel: TrustedTunnel, hostIdentifier: String, report: PairingReporter, updateInformation: @Sendable (DeviceInformation) async -> Void = { _ in }) async throws -> DeviceInformation {
         await report(.testingServices, .services, .running, "Opening RemoteXPC RSD through the authenticated tunnel using a userspace IPv6/TCP stream.")
         let xpc = RemoteXPCTransport(stream: try TunnelTCPTransport(tunnel: tunnel))
         try await xpc.open()
@@ -29,6 +29,7 @@ public enum DeveloperServiceClient {
         result.productType = properties["ProductType"]?.string.map(displayText)
         result.osVersion = properties["OSVersion"]?.string.map(displayText)
         result.developerServices = services.keys.filter { $0.hasPrefix("com.apple.coredevice.") || $0.hasPrefix("com.apple.instruments.") || $0.contains("debugserver") }.map(displayText).sorted()
+        await updateInformation(result)
         await report(.testingServices, .information, .passed, "Retrieved device-advertised RSD properties over the authenticated tunnel. Missing values remain unavailable.")
         guard let service = services["com.apple.coredevice.deviceinfo"]?.dictionary,
               let value = service["Port"]?.unsigned ?? service["Port"]?.string.flatMap(UInt64.init),

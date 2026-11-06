@@ -79,6 +79,7 @@ public actor RemotePairingClient {
         let challenge = try await receiveTLV(timeout: 90)
         try TLV8.check(challenge, state: 2)
         let serverPublic = try TLV8.require(challenge, 3), salt = try TLV8.require(challenge, 2)
+        guard serverPublic.count <= 384, serverPublic.contains(where: { $0 != 0 }), salt.count <= 64 else { throw TVPairError.malformed("manual SRP challenge") }
         guard model.hasPrefix("AppleTV") else { throw TVPairError.unsupported("the peer did not identify as an Apple TV; this client does not infer a PIN flow for other models") }
         await report(.awaitingPIN, .authentication, .running, "The device supplied a manual pairing challenge. Enter the code displayed on Apple TV.")
         let pin = try await requestPIN()

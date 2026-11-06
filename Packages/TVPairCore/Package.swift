@@ -8,6 +8,6 @@ let package = Package(
     dependencies: [.package(url: "https://github.com/attaswift/BigInt.git", exact: "5.7.0")],
     targets: [
         .target(name: "TVPairCore", dependencies: ["BigInt"]),
-        .testTarget(name: "TVPairCoreTests", dependencies: ["TVPairCore"], resources: [.copy("Fixtures")])
+        .testTarget(name: "TVPairCoreTests", dependencies: ["TVPairCore", "BigInt"], resources: [.copy("Fixtures")])
     ]
 )
