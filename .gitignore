@@ -1,0 +1,14 @@
+.research/
+.build/
+.swiftpm/
+DerivedData/
+build/
+artifacts/
+*.xcuserstate
+xcuserdata/
+*.ipa
+*.p12
+*.mobileprovision
+*.pairing
+*.rppairing
+.DS_Store
