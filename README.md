@@ -4,9 +4,13 @@ Native SwiftUI iOS app for testing whether an ordinary iPhone app can discover, 
 
 **Status: experimental implementation, awaiting physical-device validation.** A successful CI build or synthetic protocol test does not establish compatibility with tvOS 26, tvOS 27, iOS 27, or LiveContainer. No physical Apple TV result has been recorded. Authentication, persistence, tunnel establishment, developer-service response, and device information are separate checks; TCP connection alone never means paired.
 
+The main unproven transport boundary is iOS support for the reference protocol's TLS 1.2 PSK cipher suites. Apple's typed cipher enum does not expose them; this experiment configures their registered identifiers through the older public numeric API and checks the actual negotiated cipher. Runtime rejection is reported as a failed tunnel test. A functioning PIN-pairing path does not by itself resolve that boundary.
+
+**Verified build:** [CI run 42282294917](https://github.com/hubzzzgr/tvOS-pairtest/actions/runs/42282294917) passed all 29 tests, archived iOS arm64, packaged the unsigned IPA, and launched the app in an iOS 18.5 iPhone simulator. The screenshot was visually reviewed. Built with Xcode 16.4 / Swift 6.1.2 / iOS 18.5 SDK, deployment target iOS 17. [Download the unsigned build artifact](https://github.com/hubzzzgr/tvOS-pairtest/actions/runs/42282294917/artifacts/13536930446) (GitHub sign-in may be required; artifacts expire after 14 days). Re-run the workflow to regenerate it.
+
 ## Build and install
 
-Open `TVPair.xcodeproj` in a compatible Xcode on macOS. The checked-in project needs no project generator or CocoaPods. Its local Swift package resolves the MIT-licensed BigInt 5.7.0 dependency. To regenerate the project after adding app Swift files: `node scripts/generate-project.mjs` (Windows or macOS).
+Open `TVPair.xcodeproj` in Xcode 16.4 or newer on macOS. The checked-in project needs no project generator or CocoaPods. Its local Swift package resolves the MIT-licensed BigInt 5.7.0 dependency, with the tested revision recorded in both dependency locks. To regenerate the project after adding app Swift files: `node scripts/generate-project.mjs` (Windows or macOS).
 
 GitHub Actions **Build TVPair** runs automatically on `main` and supports **Run workflow**. It resolves dependencies, runs the core tests on macOS, archives for iOS arm64 with signing disabled, creates `TVPair-unsigned.ipa`, uploads logs and the unsigned build, then attempts a simulator launch with a screenshot. Failed builds retain diagnostic logs and Xcode result bundles.
 
