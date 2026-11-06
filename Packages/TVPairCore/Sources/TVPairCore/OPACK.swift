@@ -37,7 +37,7 @@ enum OPACK {
     }
     static func decode(_ data: Data) throws -> OPACKValue {
         guard data.count <= 65535 else { throw TVPairError.malformed("OPACK size limit") }
-        var decoder = Decoder(data: data)
+        var decoder = Decoder(data: data.zeroBased)
         let value = try decoder.read(depth: 0)
         guard decoder.offset == data.count else { throw TVPairError.malformed("trailing OPACK data") }
         return value

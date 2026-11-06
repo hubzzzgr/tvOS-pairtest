@@ -37,6 +37,7 @@ final class AppModel: ObservableObject {
         return "Connection not authenticated"
     }
     init() {
+        ShareItem.cleanup()
         discovery.onObservation = { [weak self] event in self?.append(event) }
     }
     private var protectedDirectory: URL { FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("TVPair", isDirectory: true) }

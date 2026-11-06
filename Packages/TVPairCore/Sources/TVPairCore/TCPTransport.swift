@@ -134,7 +134,7 @@ public enum FramedJSON {
     }
     public static func receive(from transport: any ByteTransport, magic: String = "RPPairing", timeout: TimeInterval = 10) async throws -> [String: Any] {
         let deadline = Date().addingTimeInterval(timeout)
-        let header = try await transport.readExactly(magic.utf8.count + 2, timeout: timeout)
+        let header = try await transport.readExactly(magic.utf8.count + 2, timeout: timeout).zeroBased
         guard header.prefix(magic.utf8.count) == Data(magic.utf8) else { throw TVPairError.malformed("invalid frame magic") }
         let length = Int(header[header.count - 2]) << 8 | Int(header[header.count - 1])
         guard length > 0, deadline.timeIntervalSinceNow > 0 else { throw TVPairError.malformed("empty frame or expired deadline") }

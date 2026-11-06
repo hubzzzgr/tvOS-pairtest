@@ -77,7 +77,7 @@ public final class BonjourDiscovery: NSObject, ObservableObject, @preconcurrency
     public func netServiceBrowser(_ browser: NetServiceBrowser, didNotSearch errorDict: [String: NSNumber]) {
         let code = errorDict[NetService.errorCode]?.intValue ?? 0
         discoveryMessage = code == -72008
-            ? "Local Network access is denied. Enable it in Settings → Privacy & Security → Local Network for TVPair, or for the LiveContainer host. Then restart scanning."
+            ? "Local Network access is blocked or required Bonjour declarations are unavailable. Enable access in Settings → Privacy & Security → Local Network for TVPair, or for the LiveContainer host. The host must also expose the required service declarations. Then restart scanning."
             : "Bonjour could not search (DNS-SD code \(code)). Check Local Network permission, Wi-Fi, and multicast isolation."
         onObservation?(DiagnosticEvent(operation: .discovery, service: .remotePairing, result: .failed, message: "DNS-SD search failed (code \(code))."))
     }

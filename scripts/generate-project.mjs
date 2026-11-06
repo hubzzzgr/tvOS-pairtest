@@ -8,15 +8,18 @@ const files = fs.readdirSync('TVPair/App').map(x => `TVPair/App/${x}`).concat(fs
 const refs = files.map(file => add(file, `isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ${quote(file)}; sourceTree = "<group>";`));
 const builds = files.map(file => add(`build:${file}`, `isa = PBXBuildFile; fileRef = ${id(file)};`));
 const info = add('info', 'isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = TVPair/Resources/Info.plist; sourceTree = "<group>";');
+const notices = ['LICENSE', 'THIRD_PARTY_NOTICES.md'];
+const noticeRefs = notices.map(file => add(file, `isa = PBXFileReference; lastKnownFileType = text; path = ${quote(file)}; sourceTree = "<group>";`));
+const noticeBuilds = notices.map(file => add(`build:${file}`, `isa = PBXBuildFile; fileRef = ${id(file)};`));
 const product = add('product', 'isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TVPair.app; sourceTree = BUILT_PRODUCTS_DIR;');
 const products = add('products', `isa = PBXGroup; children = (${product},); name = Products; sourceTree = "<group>";`);
-const group = add('group', `isa = PBXGroup; children = (${refs.join(',')},${info},${products},); sourceTree = "<group>";`);
+const group = add('group', `isa = PBXGroup; children = (${refs.join(',')},${noticeRefs.join(',')},${info},${products},); sourceTree = "<group>";`);
 const packageRef = add('package', 'isa = XCLocalSwiftPackageReference; relativePath = Packages/TVPairCore;');
 const dependency = add('dependency', `isa = XCSwiftPackageProductDependency; package = ${packageRef}; productName = TVPairCore;`);
 const frameworkBuild = add('framework-build', `isa = PBXBuildFile; productRef = ${dependency};`);
 const sources = add('sources', `isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (${builds.join(',')},); runOnlyForDeploymentPostprocessing = 0;`);
 const frameworks = add('frameworks', `isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (${frameworkBuild},); runOnlyForDeploymentPostprocessing = 0;`);
-const resources = add('resources', 'isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0;');
+const resources = add('resources', `isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (${noticeBuilds.join(',')},); runOnlyForDeploymentPostprocessing = 0;`);
 for (const level of ['project', 'target']) {
   for (const config of ['Debug', 'Release']) {
     const settings = level === 'project'

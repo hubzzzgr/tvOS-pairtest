@@ -75,6 +75,10 @@ struct HomeView: View {
                     if !model.fileStorage { Button("Use protected file storage…") { confirmStorage = true } }
                 }
             }
+            Section {
+                NavigationLink("Open-source licenses") { AttributionView() }
+                Text("Experimental protocol client. Physical iOS 27, tvOS 26/27 and LiveContainer compatibility remain unverified.").font(.footnote).foregroundStyle(.secondary)
+            }
         }
         .navigationTitle("Devices").navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $manual) { ManualConnectionView() }
@@ -84,6 +88,18 @@ struct HomeView: View {
         .confirmationDialog("Use protected file storage?", isPresented: $confirmStorage, titleVisibility: .visible) {
             Button("Use protected app-container file") { Task { await model.enableProtectedStorage() } }
         } message: { Text("This explicitly changes storage for future saves. iOS complete file protection and backup exclusion will be applied. The LiveContainer host may access the guest container. Existing Keychain records remain in their separate vault.") }
+    }
+}
+
+private struct AttributionView: View {
+    var body: some View {
+        ScrollView {
+            Text(notices).font(.caption.monospaced()).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading).padding()
+        }.navigationTitle("Licenses")
+    }
+    private var notices: String {
+        guard let url = Bundle.main.url(forResource: "THIRD_PARTY_NOTICES", withExtension: "md"), let text = try? String(contentsOf: url, encoding: .utf8) else { return "License notices are unavailable in this build. See the repository's THIRD_PARTY_NOTICES.md." }
+        return text
     }
 }
 

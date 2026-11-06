@@ -7,7 +7,7 @@ final class PairVerifyTests: XCTestCase {
         let transport = VerifyPeerTransport(tamperPeerSignature: false)
         let record = await transport.record()
         let client = RemotePairingClient(transport: transport)
-        let result = try await client.authenticate(endpoint: ConnectionEndpoint(host: "tv.local", port: "1234"), existingRecord: record, requestPIN: { XCTFail("Reconnect must not ask for a PIN"); throw TVPairError.authentication }, report: { stage, check, result, _ in print("Synthetic verify: \(stage.rawValue) \(check.rawValue) \(result.rawValue)") })
+        let result = try await client.authenticate(endpoint: ConnectionEndpoint(host: "tv.local", port: "1234"), existingRecord: record, requestPIN: { XCTFail("Reconnect must not ask for a PIN"); throw TVPairError.authentication }, report: { _,_,_,_ in })
         XCTAssertEqual(result.id, record.id)
         let listener = try await client.createTunnelListener()
         XCTAssertEqual(listener.port, 54321); XCTAssertEqual(listener.key.count, 32)

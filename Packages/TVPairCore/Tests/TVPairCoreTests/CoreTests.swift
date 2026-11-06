@@ -50,6 +50,17 @@ final class CoreTests: XCTestCase {
             XCTAssertEqual(error as? TVPairError, .rejected(3, 30))
         }
     }
+    func testCryptoKitSlicesAndNonzeroBasedParserInputs() throws {
+        let key = SymmetricKey(size: .bits256)
+        let box = try ChaChaPoly.seal(Data(repeating: 11, count: 400), using: key)
+        let ciphertext = box.ciphertext
+        let encoded = TLV8.encode([(5, ciphertext)])
+        XCTAssertEqual(try TLV8.decode(encoded)[5], ciphertext)
+        let prefixed = Data([99,99,99]) + encoded
+        XCTAssertEqual(try TLV8.decode(prefixed.dropFirst(3))[5], ciphertext)
+        let sealed = try PairingCrypto.seal(Data([1,2,3]), key: Data(repeating: 1, count: 32), nonce: Data(repeating: 0, count: 12))
+        XCTAssertEqual(sealed.startIndex, 0)
+    }
     func testOPACKRoundTripReferencesAndBounds() throws {
         let value = OPACKValue.dictionary(["name": .string("Apple TV"), "altIRK": .data(Data(repeating: 9, count: 16)), "values": .array([.integer(500), .bool(true)])])
         XCTAssertEqual(try OPACK.decode(OPACK.encode(value)), value)

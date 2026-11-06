@@ -16,7 +16,8 @@ enum PairingCrypto {
     static func nonce(_ label: String) -> Data { Data(repeating: 0, count: 4) + Data(label.utf8) }
     static func seal(_ data: Data, key: Data, nonce: Data) throws -> Data {
         let box = try ChaChaPoly.seal(data, using: SymmetricKey(data: key), nonce: ChaChaPoly.Nonce(data: nonce))
-        return box.ciphertext + box.tag
+        var result = Data(); result.append(box.ciphertext); result.append(box.tag)
+        return result
     }
     static func open(_ data: Data, key: Data, nonce: Data) throws -> Data {
         guard data.count >= 16 else { throw TVPairError.authentication }
@@ -82,7 +83,8 @@ struct SRPSession {
 public enum TLV8 {
     public static func encode(_ entries: [(UInt8, Data)]) -> Data {
         var output = Data()
-        for (tag, data) in entries {
+        for (tag, value) in entries {
+            let data = value.zeroBased
             if data.isEmpty { output.append(contentsOf: [tag, 0]); continue }
             var index = 0
             while index < data.count {
@@ -93,7 +95,8 @@ public enum TLV8 {
         }
         return output
     }
-    public static func decode(_ data: Data) throws -> [UInt8: Data] {
+    public static func decode(_ value: Data) throws -> [UInt8: Data] {
+        let data = value.zeroBased
         var result: [UInt8: Data] = [:], offset = 0
         while offset < data.count {
             guard offset + 2 <= data.count else { throw TVPairError.malformed("truncated TLV header") }
@@ -117,4 +120,10 @@ public enum TLV8 {
         }
         guard values[6] == Data([state]) else { throw TVPairError.malformed("unexpected TLV state") }
     }
+}
+
+extension Data {
+    /// CryptoKit's ciphertext and Foundation Data slices may retain a nonzero index.
+    /// A raw-buffer copy deliberately establishes zero-based parser offsets.
+    var zeroBased: Data { withUnsafeBytes { Data($0) } }
 }

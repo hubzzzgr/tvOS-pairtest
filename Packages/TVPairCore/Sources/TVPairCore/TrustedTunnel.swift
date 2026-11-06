@@ -144,7 +144,7 @@ actor TunnelTCPStream {
             guard packets < 4096 else { throw TVPairError.malformed("TCP packet limit") }
             try await consume(receive(deadline: deadline)); packets += 1
         }
-        let output = Data(buffer.prefix(count)); buffer.removeFirst(count); return output
+        let output = buffer.prefix(count).zeroBased; buffer.removeFirst(count); return output
     }
 }
 
@@ -178,7 +178,8 @@ enum IPv6TCPPacket {
         let value = checksum(pseudo + tcp); tcp[16] = UInt8(value >> 8); tcp[17] = UInt8(value & 255)
         return Data([0x60, 0, 0, 0]) + be(UInt32(tcp.count), count: 2) + Data([6, 64]) + source + destination + tcp
     }
-    static func parse(_ packet: Data) throws -> Segment {
+    static func parse(_ value: Data) throws -> Segment {
+        let packet = value.zeroBased
         guard packet.count >= 60, packet[0] >> 4 == 6, packet[6] == 6 else { throw TVPairError.malformed("IPv6 TCP packet") }
         let tcp = packet.subdata(in: 40..<packet.count), headerSize = Int(tcp[12] >> 4) * 4
         guard headerSize >= 20, headerSize <= tcp.count,

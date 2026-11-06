@@ -9,7 +9,7 @@ indirect enum XPCValue: Equatable {
 
 enum XPCCodec {
     static func le(_ value: UInt64, count: Int = 4) -> Data { Data((0..<count).map { UInt8(truncatingIfNeeded: value >> ($0 * 8)) }) }
-    static func number(_ data: Data, _ offset: Int, count: Int = 4) -> UInt64 { data.subdata(in: offset..<(offset + count)).enumerated().reduce(0) { $0 | UInt64($1.element) << ($1.offset * 8) } }
+    static func number(_ data: Data, _ offset: Int, count: Int = 4) -> UInt64 { data.subdata(in: (data.startIndex + offset)..<(data.startIndex + offset + count)).enumerated().reduce(0) { $0 | UInt64($1.element) << ($1.offset * 8) } }
     static func padded(_ data: Data) -> Data { data + Data(repeating: 0, count: (4 - data.count % 4) % 4) }
     static func object(_ value: XPCValue) throws -> Data {
         switch value {
@@ -37,7 +37,7 @@ enum XPCCodec {
         return le(0x29b00b92) + le(UInt64(flags)) + le(UInt64(body.count), count: 8) + le(id, count: 8) + body
     }
     static func decodeBody(_ data: Data) throws -> XPCValue {
-        var cursor = Cursor(data: data)
+        var cursor = Cursor(data: data.zeroBased)
         guard try cursor.integer(4) == 0x42133742, try cursor.integer(4) == 5 else { throw TVPairError.malformed("XPC object header") }
         let value = try cursor.read(depth: 0)
         guard cursor.offset == data.count else { throw TVPairError.malformed("trailing XPC data") }; return value
@@ -127,7 +127,7 @@ actor RemoteXPCTransport {
                     let size = XPCCodec.number(buffer, 8, count: 8)
                     guard size <= 1_048_576 else { throw TVPairError.malformed("XPC wrapper length") }
                     guard buffer.count >= 24 + Int(size) else { break }
-                    let body = buffer.subdata(in: 24..<(24 + Int(size))); buffer.removeFirst(24 + Int(size)); partial[channel] = buffer
+                    let body = buffer.subdata(in: 24..<(24 + Int(size))); buffer = buffer.dropFirst(24 + Int(size)).zeroBased; partial[channel] = buffer
                     if size == 0 { continue }
                     let value = try XPCCodec.decodeBody(body)
                     if value.dictionary?.isEmpty == true { continue }
