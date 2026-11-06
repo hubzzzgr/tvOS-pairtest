@@ -2,6 +2,7 @@ name: Build TVPair
 on:
   push:
     branches: [main]
+    paths-ignore: ['**.md', 'LICENSE']
   pull_request:
   workflow_dispatch:
 permissions:
@@ -51,7 +52,17 @@ jobs:
           printf '%s\n' 'UNSIGNED experimental iOS arm64 build. Not an App Store or directly installable signed IPA. Requires compatible local signing or LiveContainer import. Physical Apple TV pairing and iOS 27 / LiveContainer compatibility are not established by CI.' > artifacts/INSTALL.txt
           echo '### TVPair unsigned build' >> "$GITHUB_STEP_SUMMARY"
           cat artifacts/INSTALL.txt >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload unsigned app
+        uses: actions/upload-artifact@v4
+        with:
+          name: TVPair-unsigned-arm64
+          path: |
+            artifacts/TVPair-unsigned.ipa
+            artifacts/INSTALL.txt
+            artifacts/SHA256SUMS.txt
+          retention-days: 14
       - name: Simulator launch smoke test
+        timeout-minutes: 8
         run: |
           set -o pipefail
           xcodebuild -project TVPair.xcodeproj -scheme TVPair -configuration Debug \
@@ -65,16 +76,6 @@ jobs:
           xcrun simctl launch "$DEVICE_ID" org.tvpair.pairtest | tee artifacts/launch.txt
           sleep 3
           xcrun simctl io "$DEVICE_ID" screenshot artifacts/TVPair-simulator.png
-      - name: Upload unsigned app
-        if: ${{ !cancelled() && hashFiles('artifacts/TVPair-unsigned.ipa') != '' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: TVPair-unsigned-arm64
-          path: |
-            artifacts/TVPair-unsigned.ipa
-            artifacts/INSTALL.txt
-            artifacts/SHA256SUMS.txt
-          retention-days: 14
       - name: Upload diagnostics and simulator preview
         if: always()
         uses: actions/upload-artifact@v4

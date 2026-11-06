@@ -25,6 +25,7 @@ struct DiagnosticsView: View {
                             Spacer(); Text(event.result.rawValue).font(.caption).foregroundStyle(event.result == .failed ? .orange : .secondary)
                         }
                         Text(event.message).font(.caption).textSelection(.enabled)
+                        if let code = event.errorCode { Text("\(event.errorDomain ?? "Error") code \(String(code))").font(.caption.monospaced()).foregroundStyle(.orange) }
                         Text("\(event.timestamp.formatted(date: .omitted, time: .standard)) • \(event.service.rawValue) • \(String(format: "%.3f s", event.duration))").font(.caption2.monospaced()).foregroundStyle(.secondary)
                     }.padding(.vertical, 5)
                 }

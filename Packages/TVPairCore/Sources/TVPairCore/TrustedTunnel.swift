@@ -17,6 +17,7 @@ public struct TrustedTunnel: Sendable {
         let transport = TCPTransport(endpoint: target, preSharedKey: listener.key)
         do {
             try await transport.connect(timeout: 12)
+            try transport.requireNegotiatedPSK()
             try await transport.send(FramedJSON.encode(["type": "clientHandshakeRequest", "mtu": 16000], magic: "CDTunnel"), timeout: 10)
             let response = try await FramedJSON.receive(from: transport, magic: "CDTunnel")
             guard response["type"] as? String == "serverHandshakeResponse",

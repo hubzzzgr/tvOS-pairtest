@@ -123,6 +123,11 @@ public final class TCPTransport: ByteTransport, @unchecked Sendable {
         return output
     }
     public func cancel() { connection.cancel() }
+    public func requireNegotiatedPSK() throws {
+        guard let metadata = connection.metadata(definition: NWProtocolTLS.definition) as? NWProtocolTLS.Metadata else { throw TVPairError.unsupported("TLS negotiation metadata is unavailable") }
+        let suite = sec_protocol_metadata_get_negotiated_tls_ciphersuite(metadata.securityProtocolMetadata).rawValue
+        guard suite == 0x00af || suite == 0x008c else { throw TVPairError.unsupported("TLS did not negotiate one of the required pre-shared-key cipher suites") }
+    }
     deinit { connection.cancel() }
 }
 

@@ -59,17 +59,17 @@ final class AppModel: ObservableObject {
     }
     func retryStorage() async {
         do {
-            if let pendingRecord { saved = try await vault.save(pendingRecord); lastSavedID = pendingRecord.id; self.pendingRecord = nil; log(.persistence, .passed, "Saved the pending authenticated record.") }
+            if let pendingRecord { saved = try await vault.save(pendingRecord); lastSavedID = pendingRecord.id; self.pendingRecord = nil; log(.persistence, .passed, "Saved the pending credentials. An imported record does not authenticate a session.") }
             else { saved = try await vault.load() }
             storageError = nil
         } catch { storageError = TVPairError.safe(error).localizedDescription }
     }
     func append(_ event: DiagnosticEvent) { events.append(event); if events.count > 1000 { events.removeFirst(events.count - 1000) } }
-    private func log(_ check: DiagnosticCheck, _ result: CheckResult, _ text: String) {
+    private func log(_ check: DiagnosticCheck, _ result: CheckResult, _ text: String, failure: TVPairError? = nil) {
         checks[check] = result
         if result == .running { stageStart[check] = Date(); activeCheck = check }
         else if activeCheck == check { activeCheck = nil }
-        append(DiagnosticEvent(operation: check, service: service, result: result, message: text, duration: stageStart[check].map { Date().timeIntervalSince($0) } ?? 0))
+        append(DiagnosticEvent(operation: check, service: service, result: result, message: text, duration: stageStart[check].map { Date().timeIntervalSince($0) } ?? 0, failure: failure))
     }
     private func report(_ stage: PairingStage, _ check: DiagnosticCheck, _ result: CheckResult, _ text: String) {
         do { if stage != state.stage { try state.move(to: stage) } }
@@ -117,7 +117,7 @@ final class AppModel: ObservableObject {
                     self.log(.persistence, .passed, "Credentials persisted successfully.")
                 } catch {
                     self.pendingRecord = authenticated; self.storageError = TVPairError.safe(error).localizedDescription
-                    self.log(.persistence, .failed, "Credential persistence failed. The record remains in memory for an explicit retry during this app session.")
+                    self.log(.persistence, .failed, "Credential persistence failed. The record remains in memory for an explicit retry during this app session.", failure: TVPairError.safe(error))
                 }
                 try Task.checkCancellation()
                 self.report(.openingTunnel, .tunnel, .running, "Requesting an authenticated TCP listener, then testing TLS-PSK and CDTunnel.")
@@ -134,9 +134,14 @@ final class AppModel: ObservableObject {
                     }
                     let reconnect = TCPTransport(endpoint: trustedEndpoint); self.activeTransport = reconnect
                     trustedClient = RemotePairingClient(transport: reconnect)
-                    _ = try await trustedClient.authenticate(endpoint: trustedEndpoint, existingRecord: authenticated, requestPIN: { throw TVPairError.authentication }, report: { [weak self] _, check, result, text in
+                    let verified = try await trustedClient.authenticate(endpoint: trustedEndpoint, existingRecord: authenticated, requestPIN: { throw TVPairError.authentication }, report: { [weak self] _, check, result, text in
                         await self?.report(.openingTunnel, check, result, text)
                     })
+                    if self.pendingRecord?.id == verified.id { self.pendingRecord = verified }
+                    else if trustedEndpoint != endpoint {
+                        do { self.saved = try await self.vault.save(verified) }
+                        catch { self.pendingRecord = verified; self.storageError = TVPairError.safe(error).localizedDescription }
+                    }
                 }
                 let tunnel = try await TrustedTunnel.establish(endpoint: trustedEndpoint, session: trustedClient)
                 self.activeTransport = tunnel.transport
@@ -149,7 +154,7 @@ final class AppModel: ObservableObject {
                 let failed = self.activeCheck ?? (self.state.authenticated ? .tunnel : .authentication)
                 try? self.state.move(to: cancelled ? .cancelled : .failed)
                 self.errorMessage = cancelled ? nil : safe.localizedDescription; self.message = cancelled ? "The connection attempt was cancelled." : safe.localizedDescription
-                self.log(failed, cancelled ? .cancelled : .failed, self.message)
+                self.log(failed, cancelled ? .cancelled : .failed, self.message, failure: safe)
             }
         }
     }

@@ -95,8 +95,8 @@ public struct AppleTVDevice: Identifiable, Equatable, Sendable {
     public var advertisedIdentifier: String?
     public var authenticationTag: String?
     public var endpoint: ConnectionEndpoint? {
-        guard let host = hostname ?? addresses.first else { return nil }
-        return try? ConnectionEndpoint(host: host, port: String(port))
+        let candidates = [hostname].compactMap { $0 } + addresses
+        return candidates.lazy.compactMap { try? ConnectionEndpoint(host: $0, port: String(port)) }.first
     }
     public var identityLabel: String {
         if let model = advertisedModel, model.hasPrefix("AppleTV") { return "Advertised Apple TV • identity unverified" }
@@ -168,10 +168,18 @@ public struct DiagnosticEvent: Identifiable, Codable, Sendable {
     public let result: CheckResult
     public let message: String
     public let duration: TimeInterval
+    public let errorDomain: String?
+    public let errorCode: Int32?
 
-    public init(operation: DiagnosticCheck, service: ServiceKind, result: CheckResult, message: String, duration: TimeInterval = 0) {
+    public init(operation: DiagnosticCheck, service: ServiceKind, result: CheckResult, message: String, duration: TimeInterval = 0, failure: TVPairError? = nil) {
         id = UUID(); timestamp = Date(); self.operation = operation; self.service = service
         self.result = result; self.message = LogSanitizer.sanitize(message); self.duration = duration
+        switch failure {
+        case let .some(.network(domain, code)) where ["POSIX", "DNS", "DNS-SD", "TLS", "Network.framework"].contains(domain): errorDomain = domain; errorCode = code
+        case let .some(.keychain(code)): errorDomain = "OSStatus"; errorCode = code
+        case let .some(.rejected(code, _)): errorDomain = "Pairing"; errorCode = Int32(exactly: code)
+        default: errorDomain = nil; errorCode = nil
+        }
     }
 }
 
@@ -192,7 +200,10 @@ public enum LogSanitizer {
     }
     public static func export(_ events: [DiagnosticEvent]) -> String {
         let formatter = ISO8601DateFormatter()
-        return events.map { "\(formatter.string(from: $0.timestamp)) | \($0.operation.rawValue) | \($0.service.rawValue) | \($0.result.rawValue) | \(String(format: "%.3fs", $0.duration)) | \(sanitize($0.message))" }.joined(separator: "\n")
+        return events.map { event in
+            let code = event.errorCode.map { " | \(event.errorDomain ?? "Error") code \($0)" } ?? ""
+            return "\(formatter.string(from: event.timestamp)) | \(event.operation.rawValue) | \(event.service.rawValue) | \(event.result.rawValue) | \(String(format: "%.3fs", event.duration))\(code) | \(sanitize(event.message))"
+        }.joined(separator: "\n")
     }
 }
 

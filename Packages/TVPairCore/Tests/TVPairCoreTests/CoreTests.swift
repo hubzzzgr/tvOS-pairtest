@@ -101,6 +101,9 @@ final class CoreTests: XCTestCase {
         for secret in ["123456", "abc-secret", "super-secret", "TESTKEY", "credential", "secret with spaces"] { XCTAssertFalse(output.contains(secret), secret) }
         let event = DiagnosticEvent(operation: .authentication, service: .remotePairing, result: .failed, message: input)
         XCTAssertFalse(LogSanitizer.export([event]).contains("123456"))
+        let network = DiagnosticEvent(operation: .tunnel, service: .remotePairing, result: .failed, message: "PIN=123456", failure: .network("TLS", -9824))
+        let networkLog = LogSanitizer.export([network])
+        XCTAssertTrue(networkLog.contains("TLS code -9824")); XCTAssertFalse(networkLog.contains("123456"))
     }
     func testXPCCodecRoundTripAndMalformedLengths() throws {
         let value = XPCValue.dictionary(["test": .array([.string("hello"), .signed(-5), .unsigned(123)]), "key": .data(Data([1,2,3])), "id": .uuid(UUID())])
