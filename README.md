@@ -2,11 +2,11 @@
 
 Native SwiftUI iOS app for testing whether an ordinary iPhone app can discover, authenticate with, and reach Apple TV developer services over local Wi-Fi without a VPN. Includes a separate device-initiated onboarding flow for iOS 27 / iPadOS 27 test devices. Minimum app deployment target: iOS 17, arm64. No backend, extensions, private frameworks, custom entitlements, installation service, or signing service.
 
-**Status: experimental implementation; the user's LiveContainer retest passed iPhone onboarding and progressed through saved-record verification to the TLS tunnel check.** Trusted tunnel and developer-service access remain unproven. A successful CI build or synthetic protocol test does not establish compatibility with tvOS 26, tvOS 27, iOS 27, or LiveContainer. No physical Apple TV result has been recorded. Authentication, persistence, tunnel establishment, developer-service response, and device information are separate checks; TCP connection alone never means paired.
+**Status: experimental implementation; the user's iPhone15,4 / iOS 27.0.1 LiveContainer retest passed pairing, record persistence, trusted tunnel establishment and RSD information retrieval.** Instruments service probing and app pause/resume permissions still need a physical retest. A successful CI build or synthetic protocol test does not establish general compatibility with tvOS 26, tvOS 27, iOS 27, or LiveContainer. No physical Apple TV result has been recorded. Authentication, persistence, tunnel establishment, developer-service response, and device information remain separate checks.
 
 The build-3 physical retest reached the TLS tunnel after successful onboarding and saved-record verification, then stopped at the system TLS cipher check. Build 4 replaces that path with a bundled OpenSSL 3.6.5 TLS 1.2 PSK engine over public Network.framework TCP I/O. Only the two reference PSK cipher suites are enabled; OpenSSL verifies the Finished proofs and authenticated records before CDTunnel starts. Physical tunnel and developer-service interoperability still require a retest.
 
-**Latest download: [TVPair build 4 — unsigned IPA](https://github.com/hubzzzgr/tvOS-pairtest/releases/download/build-4/TVPair-unsigned.ipa).** [Release notes and checksum](https://github.com/hubzzzgr/tvOS-pairtest/releases/tag/build-4). [CI run 42347425656](https://github.com/hubzzzgr/tvOS-pairtest/actions/runs/42347425656) passed all **52 tests**, including seven real TLS loopback tests against a separate OpenSSL CLI peer, archived iOS arm64, packaged the unsigned IPA, and launched the app with the embedded framework in an iOS 18.5 iPhone simulator. The packaged build number, five Bonjour declarations, bundled licenses and unsigned app/framework binaries were verified. This is an experimental prerelease; the replacement TLS transport still needs a physical LiveContainer retest. CI artifacts expire after 14 days; the prerelease provides a direct download.
+**Latest download: [TVPair build 5 — unsigned IPA](https://github.com/hubzzzgr/tvOS-pairtest/releases/download/build-5/TVPair-unsigned.ipa).** [Release notes and checksum](https://github.com/hubzzzgr/tvOS-pairtest/releases/tag/build-5). [CI run 42349865524](https://github.com/hubzzzgr/tvOS-pairtest/actions/runs/42349865524) passed all **66 tests**, including independently framed DTX and scoped pause/resume tests plus the seven real TLS loopback tests. The iOS arm64 archive, unsigned packaging and iOS 18.5 simulator installation/launch passed. Package inspection confirmed build 5, all five Bonjour declarations, bundled licenses and unsigned arm64 app/framework binaries. Instruments and physical app suspension remain unverified. CI artifacts expire after 14 days; the prerelease provides a direct download.
 
 ## Pair with another iPhone or iPad (build 2 and later)
 
@@ -28,13 +28,15 @@ In LiveContainer, the **host** must permit `_remotepairing-pairable-host._tcp` a
 
 Discovery errors are tracked per service type. If any service has been observed during the scan, the blanket Local Network warning is suppressed. Each failing browser's actual service and numeric DNS-SD code remain in Diagnostics. A network path being available is not presented as a permission check.
 
-## Build and install
+## Developer services and app pause tests
 
 Build 5 adds a read-only Instruments hub probe alongside CoreDevice deviceinfo. A hub advertisement alone does not pass developer-service availability; the DTX capability handshake, channel request and `runningProcesses` reply must succeed. When RSD omits the name, the saved-record name is shown with **Name source: Saved pairing record**. No Bonjour name is presented as an authenticated device property.
 
 After the Instruments probe passes, the connection result has manual **Pause** and **Resume** tests for TikTok and Instagram. Each action resolves the exact bundle identifier twice, acts only on a stable positive PID and awaits the device's `suspendPid:` / `resumePid:` reply. Acknowledgement is reported separately from a verified frozen state. iOS may refuse process control on App Store apps. Use Resume before finishing the test; closing TVPair does not automatically resume a paused process. No termination, launch, monitoring or automatic freeze action is included.
 
 The authenticated tunnel and Instruments connection stay open while the result is displayed. RSD and Instruments TCP packets are routed to their owning stream with bounded buffering; an idle stream's data is no longer discarded when another service reads.
+
+## Build and install
 
 Open `TVPair.xcodeproj` in Xcode 16.4 or newer on macOS. The checked-in project needs no project generator or CocoaPods. Its local Swift package resolves MIT-licensed BigInt 5.7.0 and Apache-2.0 OpenSSL-Package 3.6.5000 (OpenSSL 3.6.5). Both dependency locks pin exact revisions; SwiftPM also verifies the OpenSSL XCFramework ZIP checksum. Redistribution notices are bundled in the app. To regenerate the project after adding app Swift files: `node scripts/generate-project.mjs` (Windows or macOS).
 

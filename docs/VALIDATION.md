@@ -30,6 +30,16 @@ The user supplied screenshots from LiveContainer while testing another iPhone. T
 
 Build 2 tracks browser failures per service, suppresses blanket permission warnings after successful discovery, distinguishes regular/saved-record endpoints from Apple TV manual setup, and adds explicit device-initiated iOS 27/iPadOS 27 onboarding. Its listener advertisement can still be blocked by LiveContainer's host declarations; successful browsing of a different service does not establish publishing permission. The new onboarding implementation remains physically unvalidated until a user repeats the test with build 2.
 
+## Recorded build-5 CI evidence — 2026-11-07
+
+[CI run 42349865524](https://github.com/hubzzzgr/tvOS-pairtest/actions/runs/42349865524) succeeded for source `2940e6ea7d727a2ecdf2da23d4c2f53d6c5563d9`:
+
+- All **66 tests** passed with zero failures. The 14 new cases cover a separately framed DTX peer using native Foundation archives, capability/channel exchange, fragmented replies and identity mismatch, oversized headers, a secure class allowlist, NSError code-only decoding, saved-name provenance, fixed bundle/PID selection, cancellation, device rejection and interleaved RSD/developer packets. Existing pairing, TLS, storage and transport regressions still pass. These DTX peers are synthetic; they do not demonstrate actual device authorization.
+- Xcode 16.4 / Swift 6.1.2 / iOS 18.5 SDK archived iOS arm64, packaged the unsigned IPA and installed/launched it in an iPhone simulator. The default home-screen screenshot was downloaded and visually reviewed; the physical connection-result controls were not exercised by that launch check.
+- Package inspection confirms build **5**, minimum OS **17.0**, all five Bonjour declarations, zero app extensions, MIT/Apache notices and unsigned arm64 app/OpenSSL framework binaries.
+- The **2,576,713-byte** IPA's SHA-256 matches CI and GitHub's release digest: `785ebd913723f79b0e44b029f9bfd1968972e6f0969d7162f99b47a6f3d95219`.
+- [Public prerelease and direct download](https://github.com/hubzzzgr/tvOS-pairtest/releases/tag/build-5) target the tested revision. Native Instruments access and physical TikTok/Instagram pause/resume still need user validation; an acknowledged RPC is not independently observed suspension.
+
 ## Recorded build-4 CI evidence — 2026-11-07
 
 [CI run 42347425656](https://github.com/hubzzzgr/tvOS-pairtest/actions/runs/42347425656) succeeded for source `89ef828fd5013adde51d6a1483503609a1288400`:
@@ -78,8 +88,7 @@ This evidence does not prove iOS 27 runtime compatibility, LiveContainer guest b
 | --- | --- | --- |
 | iOS 17 deployment target / arm64 | Archive passed using iOS 18.5 SDK; iOS 18.5 simulator launch passed | Physical test outstanding |
 | iOS 27 standalone | No physical test | Unknown |
-| iOS 27 in LiveContainer | No physical test; host permissions/Keychain unverified | Unknown |
-| User's two-iPhone LiveContainer setup (target OS not reported) | Screenshots show discovery, resolution and TCP passing | Build-3 onboarding authentication/persistence passed; code progressed through saved-record verification and listener creation to the TLS suite guard; no trusted tunnel/developer result |
+| User's iPhone15,4 / iOS 27.0.1 in LiveContainer | User screenshot reports pairing, persistence, trusted tunnel and RSD information passing; storage backend not reported | Build-4 CoreDevice-only availability check blocked; build-5 Instruments/pause/resume await retest |
 | tvOS 26 | Current reference protocol path inspected; no explicit local compatibility proof | Unknown |
 | tvOS 27 | Current reference protocol path inspected; no explicit local compatibility proof | Unknown |
 
@@ -95,7 +104,7 @@ The current upstream implementations document Apple TV manual pairing, but their
 - `TrustedTunnel.establish`: an unexpected CDTunnel configuration yields `Unexpected protocol response: CDTunnel handshake configuration`. No system tunnel or route is installed.
 - `TunnelTCPStream`: the bounded userspace transport is not a production network stack. IPv6 extensions, zero-window conditions, unexpected ACKs, receive limits or timeouts fail explicitly. Separate developer/RSD streams are sequential and limited; a busy RSD peer may expose additional multiplexing requirements.
 - `RemoteXPCTransport.receive`: bounded HTTP/2 and XPC support may encounter newer object/frame types. These return `Unsupported: XPC object tag` / `HTTP/2 frame type`; no raw protocol data enters logs. Full general-purpose flow control and file transfer are out of scope.
-- `DeveloperServiceClient.inspect`: an RSD reply without the device-info service is blocked; getdeviceinfo must return `CoreDevice.output` to pass. Actual tvOS DDI/CoreDevice version interoperability is unverified. Missing properties remain `Unavailable`.
+- `DeveloperConnection.inspect`: Instruments availability requires a successful capability exchange, accepted deviceinfo channel and running-process array. CoreDevice fallback requires an output dictionary. An advertised service with a failed probe is failed; no supported usable port is blocked. Name fallback is labelled as saved-record metadata. Physical DTX and App Store process-control permissions remain unverified.
 - `KeychainStorage`: actual access-group restrictions depend on guest signing and the host. OSStatus is shown; file fallback requires explicit consent and is separately scoped. Host access and secure zeroization of Swift memory cannot be guaranteed.
 - `BonjourDiscovery`: browsing continues until stopped. Empty results cannot distinguish a TV being asleep, multicast isolation, missing service exposure or denied policy. Known DNS-SD policy denial is explained. Hostname resolution re-runs periodically; no stable identity is inferred from names/IPs.
 
