@@ -1,12 +1,30 @@
 # TVPair — tvOS pairing experiment
 
-Native SwiftUI iOS app for testing whether an ordinary iPhone app can discover, authenticate with, and reach Apple TV developer services over local Wi-Fi without a VPN. Minimum deployment target: iOS 17, arm64. No backend, extensions, private frameworks, custom entitlements, installation service, or signing service.
+Native SwiftUI iOS app for testing whether an ordinary iPhone app can discover, authenticate with, and reach Apple TV developer services over local Wi-Fi without a VPN. Includes a separate device-initiated onboarding flow for iOS 27 / iPadOS 27 test devices. Minimum app deployment target: iOS 17, arm64. No backend, extensions, private frameworks, custom entitlements, installation service, or signing service.
 
 **Status: experimental implementation, awaiting physical-device validation.** A successful CI build or synthetic protocol test does not establish compatibility with tvOS 26, tvOS 27, iOS 27, or LiveContainer. No physical Apple TV result has been recorded. Authentication, persistence, tunnel establishment, developer-service response, and device information are separate checks; TCP connection alone never means paired.
 
 The main unproven transport boundary is iOS support for the reference protocol's TLS 1.2 PSK cipher suites. Apple's typed cipher enum does not expose them; this experiment configures their registered identifiers through the older public numeric API and checks the actual negotiated cipher. Runtime rejection is reported as a failed tunnel test. A functioning PIN-pairing path does not by itself resolve that boundary.
 
-**Verified build:** [CI run 42282294917](https://github.com/hubzzzgr/tvOS-pairtest/actions/runs/42282294917) passed all 29 tests, archived iOS arm64, packaged the unsigned IPA, and launched the app in an iOS 18.5 iPhone simulator. The screenshot was visually reviewed. Built with Xcode 16.4 / Swift 6.1.2 / iOS 18.5 SDK, deployment target iOS 17. [Download the unsigned build artifact](https://github.com/hubzzzgr/tvOS-pairtest/actions/runs/42282294917/artifacts/13536930446) (GitHub sign-in may be required; artifacts expire after 14 days). Re-run the workflow to regenerate it.
+**Previous baseline:** [CI run 42282294917](https://github.com/hubzzzgr/tvOS-pairtest/actions/runs/42282294917) passed all 29 original tests, archived iOS arm64, packaged the unsigned IPA, and launched the app in an iOS 18.5 iPhone simulator. This is build 1 and does not contain the iPhone onboarding or discovery corrections below. Use a successful build-2 workflow artifact for those fixes. Artifacts expire after 14 days; re-run the workflow to regenerate them.
+
+## Pair with another iPhone or iPad (build 2)
+
+Developer Mode and a regular `_remotepairing._tcp` advertisement do **not** establish new trust. That endpoint is used with an existing record. Attempting Apple's TV PIN flow against it can end with the peer closing before a handshake, as seen in the initial LiveContainer test report.
+
+For iOS 27 / iPadOS 27 targets:
+
+1. In TVPair, tap **Pair with iPhone / iPad**. Keep TVPair in the foreground.
+2. On the **other device**, open **Settings → Developer → Paired Macs** and select **TVPair**.
+3. After the device requests setup, TVPair displays a six-digit code. Enter it **on the other device**. TVPair does not ask you to type that code locally.
+4. Authentication checks the SRP client proof and signed device identity. Only then is a record saved. TVPair looks for that device's regular advertisement by its identity tag, verifies the peer again, and separately tests the trusted tunnel and developer service.
+5. Keep the target pairing screen and TVPair's result open while testing. The reference iPhone onboarding path may retain trust only for the active session; saving a record does not guarantee persistent device-side trust after either side restarts.
+
+This flow follows [idevice's responder implementation](https://github.com/jkcoxson/idevice/blob/89702099f4d7552f704f93b4526756abda319ceb/idevice/src/remote_pairing/responder.rs) and [idevice_pair's documented iPhone Wi-Fi workflow](https://github.com/jkcoxson/idevice_pair#over-wi-fi-with-iphone-or-ipad). iOS 26 and earlier do not gain that onboarding UI simply by enabling Developer Mode. Apple TV continues to use its separate manual-pairing service and TV-displayed code.
+
+In LiveContainer, the **host** must permit `_remotepairing-pairable-host._tcp` advertisement as well as Local Network access. Successful scanning of `_remotepairing` does not prove the host allows every other service type. A failed advertisement is reported specifically for incoming onboarding. The app's Info.plist declares the new service, but a guest cannot force the hosting app's declarations.
+
+Discovery errors are tracked per service type. If any service has been observed during the scan, the blanket Local Network warning is suppressed. Each failing browser's actual service and numeric DNS-SD code remain in Diagnostics. A network path being available is not presented as a permission check.
 
 ## Build and install
 

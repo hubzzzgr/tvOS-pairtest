@@ -86,7 +86,9 @@ final class AppModel: ObservableObject {
     }
     func start(endpoint: ConnectionEndpoint, service: ServiceKind, discovered: Bool, recordID: UUID? = nil) {
         guard !busy else { return }
-        finishPresentation()
+        // A retry for this onboarding record must not tear down the channel
+        // that may be keeping the other iPhone's session-limited trust alive.
+        if !(hosting && recordID != nil && recordID == lastSavedID) { finishPresentation() }
         busy = true; presentPairing = true; self.service = service; checks = [:]; state = PairingState()
         information = DeviceInformation(); errorMessage = nil; lastSavedID = nil; pin = ""; started = Date(); stageStart = [:]; activeCheck = nil
         log(.discovery, discovered ? .passed : .blocked, discovered ? "Selected a currently discovered service." : "Manual endpoint; Bonjour discovery was bypassed.")

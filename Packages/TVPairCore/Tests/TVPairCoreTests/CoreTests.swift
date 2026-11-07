@@ -41,6 +41,14 @@ final class CoreTests: XCTestCase {
         var state = PairingState(); XCTAssertThrowsError(try state.move(to: .awaitingPIN))
         try state.move(to: .cancelled); XCTAssertFalse(state.authenticated)
     }
+    func testDeviceInitiatedStagesCanReachAuthenticationWithoutLocalPINEntry() throws {
+        var state = PairingState()
+        for stage: PairingStage in [.advertising, .awaitingPeer, .connecting, .negotiating, .requestingConsent, .displayingPIN, .authenticating] { try state.move(to: stage) }
+        try state.acceptAuthentication(); XCTAssertTrue(state.authenticated)
+        XCTAssertFalse(state.trustedTunnel); XCTAssertFalse(state.completeSuccess)
+        try state.move(to: .persisting); try state.move(to: .openingTunnel)
+        try state.move(to: .failed); XCTAssertFalse(state.completeSuccess)
+    }
     func testTLVFragmentationAndMalformedInput() throws {
         let data = Data((0..<700).map { UInt8($0 % 256) })
         XCTAssertEqual(try TLV8.decode(TLV8.encode([(3, data)]))[3], data)

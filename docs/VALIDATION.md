@@ -2,7 +2,13 @@
 
 ## Evidence boundaries
 
-No physical iPhone, Apple TV, or LiveContainer session has been used during this Windows implementation. CI verifies compilation, synthetic protocol behavior and a simulator launch only. No real pairing record or device identity is included in this repository.
+The implementation environment remains Windows. There has been no agent-operated physical iPhone or Apple TV test. User-reported LiveContainer observations are recorded separately below; they demonstrate discovery/TCP connectivity, not authentication. CI verifies compilation, synthetic protocol behavior and simulator launch only. No real pairing credentials are included in this repository.
+
+## User-reported LiveContainer evidence and build-2 corrections — 2026-11-07
+
+The user supplied screenshots from LiveContainer while testing another iPhone. They show a discovered regular Remote Pairing service on `iPhone.local.:49152`; Bonjour discovery, endpoint resolution and TCP passed. The peer closed before pairing initiation completed. A simultaneous blanket Local Network warning was therefore misleading. These observations do not prove authenticated pairing or an Apple TV result.
+
+Build 2 tracks browser failures per service, suppresses blanket permission warnings after successful discovery, distinguishes regular/saved-record endpoints from Apple TV manual setup, and adds explicit device-initiated iOS 27/iPadOS 27 onboarding. Its listener advertisement can still be blocked by LiveContainer's host declarations; successful browsing of a different service does not establish publishing permission. The new onboarding implementation remains physically unvalidated until a user repeats the test with build 2.
 
 ## Recorded CI evidence — 2026-11-06
 
@@ -22,6 +28,7 @@ This evidence does not prove iOS 27 runtime compatibility, LiveContainer guest b
 | iOS 17 deployment target / arm64 | Archive passed using iOS 18.5 SDK; iOS 18.5 simulator launch passed | Physical test outstanding |
 | iOS 27 standalone | No physical test | Unknown |
 | iOS 27 in LiveContainer | No physical test; host permissions/Keychain unverified | Unknown |
+| User's two-iPhone LiveContainer setup (target OS not reported) | Build-1 screenshots show discovery, resolution and TCP passing | Peer closed before handshake; build-2 onboarding awaits retest |
 | tvOS 26 | Current reference protocol path inspected; no explicit local compatibility proof | Unknown |
 | tvOS 27 | Current reference protocol path inspected; no explicit local compatibility proof | Unknown |
 
@@ -29,7 +36,7 @@ The current upstream implementations document Apple TV manual pairing, but their
 
 ## Known boundaries and exact failure locations
 
-- `RemotePairingClient.authenticate`: wire version other than 19 yields `Unsupported: peer wire protocol version …`; non-AppleTV handshake models stop the new PIN flow. Missing/malformed TLVs stop the exchange. A server proof or peer signature mismatch yields `Cryptographic authentication failed` and no record.
+- `RemotePairingClient.authenticate`: an advertised version range excluding the requested 19 yields `Unsupported: no compatible RPPairing wire version…`. A newer maximum alone is accepted when 19 remains supported. Non-AppleTV models stop the outbound TV PIN flow; iPhone onboarding instead uses `PairableHostSession`. Missing/malformed TLVs stop the exchange. A proof or peer signature mismatch yields `Cryptographic authentication failed` and no record.
 - `RemotePairingClient.authenticate/verify`: legacy records without `tvpair_peer_public_key` / `tvpair_peer_identifier` yield `Unsupported: this imported record lacks the peer signing key…`. This intentionally prevents silently accepting unauthenticated peer identity.
 - `RemotePairingClient.receiveTLV`: generic `pairingRejectedWithError` events use local sentinel `-1` when no TLV error code is available. This sentinel is not a device-reported CoreUtils error code. Raw localized error payloads are omitted to keep credentials out of logs.
 - `RemotePairingClient.createTunnelListener`: no validated listener port yields `Unsupported: the authenticated endpoint did not provide a TCP tunnel listener…`. The saved pairing remains available for reconnect on the regular advertisement. Manual pairing and tunnel availability are separate.
