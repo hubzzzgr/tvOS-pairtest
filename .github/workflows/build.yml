@@ -49,6 +49,14 @@ jobs:
         run: |
           mkdir -p build/unsigned/Payload
           cp -R build/TVPair.xcarchive/Products/Applications/TVPair.app build/unsigned/Payload/
+          # The binary dependency arrives signed by its distributor. Remove that
+          # signature from the release copy so the IPA is consistently unsigned.
+          find build/unsigned/Payload/TVPair.app -type d -name '*.framework' -print0 |
+            while IFS= read -r -d '' framework; do
+              if codesign -d "$framework" >/dev/null 2>&1; then
+                codesign --remove-signature "$framework"
+              fi
+            done
           (cd build/unsigned && zip -qry ../../artifacts/TVPair-unsigned.ipa Payload)
           shasum -a 256 artifacts/TVPair-unsigned.ipa > artifacts/SHA256SUMS.txt
           printf '%s\n' 'UNSIGNED experimental iOS arm64 build. Not an App Store or directly installable signed IPA. Requires compatible local signing or LiveContainer import. Physical Apple TV pairing and iOS 27 / LiveContainer compatibility are not established by CI.' > artifacts/INSTALL.txt

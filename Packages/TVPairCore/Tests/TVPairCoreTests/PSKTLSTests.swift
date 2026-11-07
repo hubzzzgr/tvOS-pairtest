@@ -84,6 +84,7 @@ final class PSKTLSTests: XCTestCase {
 private final class OpenSSLTestServer: @unchecked Sendable {
     private let process = Process()
     private let output = Pipe()
+    private let errors = Pipe()
     init(cipher: String = "PSK-AES256-CBC-SHA384") throws {
         let configured = ProcessInfo.processInfo.environment["TVPAIR_OPENSSL_CLI"]
         let candidates = [configured, "/opt/homebrew/opt/openssl@3/bin/openssl", "/usr/local/opt/openssl@3/bin/openssl"].compactMap { $0 }
@@ -92,9 +93,9 @@ private final class OpenSSLTestServer: @unchecked Sendable {
             throw XCTSkip("Install Homebrew OpenSSL 3 or set TVPAIR_OPENSSL_CLI to run the loopback PSK tests")
         }
         process.executableURL = URL(fileURLWithPath: executable)
-        process.arguments = ["s_server", "-accept", "127.0.0.1:0", "-nocert", "-tls1_2", "-cipher", cipher, "-psk", String(repeating: "41", count: 32), "-psk_identity", "", "-naccept", "1", "-rev", "-bufsize", "65536"]
+        process.arguments = ["s_server", "-accept", "127.0.0.1:0", "-nocert", "-tls1_2", "-cipher", cipher, "-psk", String(repeating: "41", count: 32), "-psk_identity", "", "-naccept", "1", "-rev"]
         process.standardOutput = output
-        process.standardError = FileHandle.nullDevice
+        process.standardError = errors
         process.standardInput = FileHandle.nullDevice
     }
     func start() async throws -> UInt16 {
@@ -106,7 +107,12 @@ private final class OpenSSLTestServer: @unchecked Sendable {
                 var line = Data(), total = 0
                 do {
                     while total < 8192 {
-                        guard let byte = try output.fileHandleForReading.read(upToCount: 1), !byte.isEmpty else { throw TVPairError.closed }
+                        guard let byte = try output.fileHandleForReading.read(upToCount: 1), !byte.isEmpty else {
+                            // Test-peer startup diagnostics only: this process has
+                            // synthetic keys and has not accepted any connection.
+                            let detail = try errors.fileHandleForReading.readToEnd() ?? Data()
+                            throw TVPairError.malformed("OpenSSL test peer startup: " + String(String(decoding: detail, as: UTF8.self).prefix(1200)))
+                        }
                         total += 1; line.append(byte)
                         if byte[0] == 10 {
                             let text = String(decoding: line, as: UTF8.self)
