@@ -34,6 +34,14 @@ Build 2 tracks browser failures per service, suppresses blanket permission warni
 
 The user's build-5 screenshots on the same iPhone15,4 / iOS 27.0.1 show pairing, persistence, trusted tunnel and RSD information passing. The saved-record name fallback is visible with its source. Developer-service availability failed at `Instruments auxiliary header`, correctly leaving Pause/Resume disabled. The exact peer bytes are unavailable. Build 6 removes the incorrect fixed `0x1F0` header assumption and supports flagged dictionary and legacy auxiliary envelopes with exact byte boundaries. Six new regression cases cover flag variants, legacy capacity hints, nested envelopes, empty/null values, invalid lengths/keys/boundaries, and argument/nesting limits. The synthetic handshake peer now sends `0x7F0` rather than echoing the client's default. These fixtures are synthetic; physical Instruments access and suspension remain unverified.
 
+[CI run 42351288802](https://github.com/hubzzzgr/tvOS-pairtest/actions/runs/42351288802) succeeded for source `04c117299e075aab1c0f0b9b3751c3f53b2f2802`:
+
+- All **72 tests** passed with zero failures, including 13 Instruments cases, scoped Pause/Resume tests and seven real TLS loopback tests. Total test execution was approximately 113 seconds.
+- Xcode 16.4 / Swift 6.1.2 archived iOS arm64 and installed/launched the simulator app. The default home screenshot was downloaded and visually reviewed; no physical connection or process suspension was exercised by CI.
+- Local package inspection confirms build **6**, minimum iOS **17.0**, five Bonjour declarations, bundled notices and unsigned arm64 app/OpenSSL framework binaries.
+- The **2,577,826-byte** IPA's SHA-256 matches CI and GitHub's release digest: `77f519e7a745db6d65cec5d245276a6c09c22074c2bc4faf2b3921861f734c7c`.
+- The [public prerelease](https://github.com/hubzzzgr/tvOS-pairtest/releases/tag/build-6) targets the tested source. Physical confirmation remains required for this header compatibility change.
+
 ## Recorded build-5 CI evidence — 2026-11-07
 
 [CI run 42349865524](https://github.com/hubzzzgr/tvOS-pairtest/actions/runs/42349865524) succeeded for source `2940e6ea7d727a2ecdf2da23d4c2f53d6c5563d9`:
