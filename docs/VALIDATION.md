@@ -30,6 +30,10 @@ The user supplied screenshots from LiveContainer while testing another iPhone. T
 
 Build 2 tracks browser failures per service, suppresses blanket permission warnings after successful discovery, distinguishes regular/saved-record endpoints from Apple TV manual setup, and adds explicit device-initiated iOS 27/iPadOS 27 onboarding. Its listener advertisement can still be blocked by LiveContainer's host declarations; successful browsing of a different service does not establish publishing permission. The new onboarding implementation remains physically unvalidated until a user repeats the test with build 2.
 
+## Build-6 physical regression and validation scope — 2026-11-07
+
+The user's build-5 screenshots on the same iPhone15,4 / iOS 27.0.1 show pairing, persistence, trusted tunnel and RSD information passing. The saved-record name fallback is visible with its source. Developer-service availability failed at `Instruments auxiliary header`, correctly leaving Pause/Resume disabled. The exact peer bytes are unavailable. Build 6 removes the incorrect fixed `0x1F0` header assumption and supports flagged dictionary and legacy auxiliary envelopes with exact byte boundaries. Six new regression cases cover flag variants, legacy capacity hints, nested envelopes, empty/null values, invalid lengths/keys/boundaries, and argument/nesting limits. The synthetic handshake peer now sends `0x7F0` rather than echoing the client's default. These fixtures are synthetic; physical Instruments access and suspension remain unverified.
+
 ## Recorded build-5 CI evidence — 2026-11-07
 
 [CI run 42349865524](https://github.com/hubzzzgr/tvOS-pairtest/actions/runs/42349865524) succeeded for source `2940e6ea7d727a2ecdf2da23d4c2f53d6c5563d9`:
@@ -88,7 +92,7 @@ This evidence does not prove iOS 27 runtime compatibility, LiveContainer guest b
 | --- | --- | --- |
 | iOS 17 deployment target / arm64 | Archive passed using iOS 18.5 SDK; iOS 18.5 simulator launch passed | Physical test outstanding |
 | iOS 27 standalone | No physical test | Unknown |
-| User's iPhone15,4 / iOS 27.0.1 in LiveContainer | User screenshot reports pairing, persistence, trusted tunnel and RSD information passing; storage backend not reported | Build-4 CoreDevice-only availability check blocked; build-5 Instruments/pause/resume await retest |
+| User's iPhone15,4 / iOS 27.0.1 in LiveContainer | User screenshots report pairing, persistence, trusted tunnel, RSD information and labelled name fallback passing; storage backend not reported | Build-5 Instruments probe failed at auxiliary-header decoding; build-6 parser fix awaits physical retest |
 | tvOS 26 | Current reference protocol path inspected; no explicit local compatibility proof | Unknown |
 | tvOS 27 | Current reference protocol path inspected; no explicit local compatibility proof | Unknown |
 

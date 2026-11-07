@@ -2,6 +2,63 @@ import XCTest
 @testable import TVPairCore
 
 final class InstrumentsTests: XCTestCase {
+    // Literal auxiliary fixtures: these do not use the production encoder.
+    private let integerArgument = Data([10,0,0,0, 3,0,0,0, 42,0,0,0])
+    private func decodeAux(_ aux: Data) throws -> [DTXValue] {
+        let payload = InstrumentsPeer.uint(2) + InstrumentsPeer.uint(UInt64(aux.count)) + InstrumentsPeer.uint(UInt64(aux.count), count: 8) + aux
+        return try DTXCodec.decodePayload(payload, id: 1, conversation: 0, channel: 0, expectsReply: false).arguments
+    }
+    func testAuxiliaryDictionaryAcceptsFlagVariants() throws {
+        for marker: UInt8 in [0, 1, 2, 7] {
+            let header = Data([0xf0,marker,0,0, 0,0,0,0, 12,0,0,0,0,0,0,0])
+            XCTAssertEqual(try decodeAux(header + integerArgument), [.integer(42)])
+        }
+    }
+    func testLegacyAuxiliaryCapacityIsNotAMagicNumber() throws {
+        let header = Data([0,4,0,0, 0,0,0,0, 12,0,0,0,0,0,0,0]) // Capacity hint 1024.
+        XCTAssertEqual(try decodeAux(header + integerArgument), [.integer(42)])
+        let bare = Data([3,0,0,0, 42,0,0,0])
+        let bareHeader = Data([0,4,0,0, 0,0,0,0, 8,0,0,0,0,0,0,0])
+        XCTAssertEqual(try decodeAux(bareHeader + bare), [.integer(42)])
+    }
+    func testNestedDictionaryInLegacyAuxiliaryEnvelope() throws {
+        let outer = Data([0,4,0,0, 0,0,0,0, 28,0,0,0,0,0,0,0])
+        let nested = Data([0xf0,2,0,0, 0,0,0,0, 12,0,0,0,0,0,0,0])
+        XCTAssertEqual(try decodeAux(outer + nested + integerArgument), [.integer(42)])
+    }
+    func testEmptyAndNullAuxiliaryValues() throws {
+        let empty = Data([0xf0,7,0,0, 0,0,0,0, 0,0,0,0,0,0,0,0])
+        XCTAssertEqual(try decodeAux(empty), [])
+        let header = Data([0xf0,7,0,0, 0,0,0,0, 12,0,0,0,0,0,0,0])
+        XCTAssertEqual(try decodeAux(header + Data([10,0,0,0, 2,0,0,0, 0,0,0,0])), [.null])
+        let nullHeader = Data([0xf0,7,0,0, 0,0,0,0, 8,0,0,0,0,0,0,0])
+        XCTAssertEqual(try decodeAux(nullHeader + Data([10,0,0,0, 10,0,0,0])), [.null])
+    }
+    func testAuxiliaryLengthKeyAndValueBoundariesAreStillEnforced() throws {
+        let header = Data([0xf0,7,0,0, 0,0,0,0, 12,0,0,0,0,0,0,0])
+        XCTAssertThrowsError(try decodeAux(header))
+        XCTAssertThrowsError(try decodeAux(header + integerArgument + Data([0])))
+        XCTAssertThrowsError(try decodeAux(Data([0xf0,7])))
+        XCTAssertThrowsError(try decodeAux(header + Data([3,0,0,0, 3,0,0,0, 42,0,0,0])))
+        XCTAssertThrowsError(try decodeAux(header + Data([10,0,0,0, 2,0,0,0, 1,0,0,0])))
+        let missingValue = Data([0xf0,7,0,0, 0,0,0,0, 4,0,0,0,0,0,0,0, 10,0,0,0])
+        XCTAssertThrowsError(try decodeAux(missingValue))
+        let oversizedNested = Data([0,4,0,0, 0,0,0,0, 16,0,0,0,0,0,0,0, 0xf0,2,0,0, 0,0,0,0, 255,255,255,255,255,255,255,255])
+        XCTAssertThrowsError(try decodeAux(oversizedNested))
+    }
+    func testAuxiliaryArgumentAndNestingLimits() throws {
+        var entries = Data()
+        for _ in 0..<65 { entries += integerArgument }
+        let header = Data([0xf0,7,0,0, 0,0,0,0]) + InstrumentsPeer.uint(UInt64(entries.count), count: 8)
+        XCTAssertThrowsError(try decodeAux(header + entries))
+        var nested = integerArgument
+        for _ in 0..<9 {
+            nested = Data([0xf0,7,0,0, 0,0,0,0]) + InstrumentsPeer.uint(UInt64(nested.count), count: 8) + nested
+            nested = Data([10,0,0,0]) + nested
+        }
+        let outer = Data([0xf0,7,0,0, 0,0,0,0]) + InstrumentsPeer.uint(UInt64(nested.count), count: 8)
+        XCTAssertThrowsError(try decodeAux(outer + nested))
+    }
     func testHubHandshakeReadOnlyProbeAndScopedPauseResumeRPCs() async throws {
         let wire = try InstrumentsPeerTransport(fragmented: true)
         let client = InstrumentsTransport(stream: wire)
@@ -103,7 +160,8 @@ private actor InstrumentsPeer {
             let archived = try NSKeyedArchiver.archivedData(withRootObject: arg, requiringSecureCoding: false)
             aux += uint(10) + uint(2) + uint(UInt64(archived.count)) + archived
         }
-        if !aux.isEmpty { aux = uint(0x1f0) + uint(0) + uint(UInt64(aux.count), count: 8) + aux }
+        // Exercise a peer flag variant, rather than echoing the client's 0x1F0.
+        if !aux.isEmpty { aux = uint(0x7f0) + uint(0) + uint(UInt64(aux.count), count: 8) + aux }
         let object = try value.map { try NSKeyedArchiver.archivedData(withRootObject: $0, requiringSecureCoding: false) } ?? Data()
         return uint(UInt64(type)) + uint(UInt64(aux.count)) + uint(UInt64(aux.count + object.count), count: 8) + aux + object
     }

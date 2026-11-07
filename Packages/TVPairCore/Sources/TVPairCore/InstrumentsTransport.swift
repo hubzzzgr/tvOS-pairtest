@@ -104,35 +104,64 @@ enum DTXCodec {
         guard total == UInt64(b.count - 16), auxSize <= b.count - 16 else { throw TVPairError.malformed("Instruments payload lengths") }
         var args: [DTXValue] = []
         if auxSize > 0 {
-            guard auxSize >= 16, number(b, 16) == 0x1f0, number(b, 24, 8) == UInt64(auxSize - 16) else { throw TVPairError.malformed("Instruments auxiliary header") }
-            var p = 32
-            let end = 16 + auxSize
-            while p < end {
-                guard args.count < 64, p + 4 <= end else { throw TVPairError.malformed("Instruments auxiliary count") }
-                let type = number(b, p); p += 4
-                if type == 10 { continue }
-                if type == 3 {
-                    guard p + 4 <= end else { throw TVPairError.malformed("Instruments integer argument") }
-                    args.append(.integer(Int64(number(b, p)))); p += 4
-                } else if type == 6 || type == 9 {
-                    guard p + 8 <= end else { throw TVPairError.malformed("Instruments wide argument") }
-                    let v = number(b, p, 8); p += 8
-                    args.append(type == 6 ? .integer(Int64(bitPattern: v)) : .real(Double(bitPattern: v)))
-                } else if type == 1 || type == 2 {
-                    guard p + 4 <= end else { throw TVPairError.malformed("Instruments argument size") }
-                    let size = Int(number(b, p)); p += 4
-                    guard size <= end - p else { throw TVPairError.malformed("Instruments argument boundary") }
-                    let bytes = b.subdata(in: p..<p + size); p += size
-                    if type == 2 { args.append(try DTXValue.unarchive(bytes)) }
-                    else {
-                        guard let string = String(data: bytes, encoding: .utf8) else { throw TVPairError.malformed("Instruments string argument") }
-                        args.append(.string(string))
-                    }
-                } else { throw TVPairError.unsupported("Instruments argument type") }
-            }
+            args = try decodeAuxiliary(b.subdata(in: 16..<(16 + auxSize)))
         }
         let object = b.subdata(in: (16 + auxSize)..<b.count)
         return DTXMessage(identifier: id, conversation: conversation, wireChannel: channel, expectsReply: expectsReply, type: flags, arguments: args, value: object.isEmpty ? nil : try DTXValue.unarchive(object))
+    }
+    /// The modern envelope is a primitive dictionary (low byte 0xF0; upper
+    /// bits are flags). Legacy peers use the first word as a buffer-size hint.
+    /// Neither form has a fixed 0x1F0 magic. Both carry a 16-byte header and an
+    /// exact byte count; no peer-supplied size is used to allocate a buffer.
+    private static func decodeAuxiliary(_ b: Data) throws -> [DTXValue] {
+        guard b.count >= 16 else { throw TVPairError.malformed("Instruments auxiliary header truncated (\(b.count) bytes)") }
+        let marker = number(b, 0), size = number(b, 8, 8)
+        guard size == UInt64(b.count - 16) else {
+            throw TVPairError.malformed("Instruments auxiliary length (header \(size), actual \(b.count - 16), marker \(marker))")
+        }
+        var p = 16, args: [DTXValue] = []
+        try decodeAuxiliaryEntries(b, position: &p, end: b.count, dictionary: marker & 0xff == 0xf0, depth: 0, into: &args)
+        return args
+    }
+    private static func decodeAuxiliaryEntries(_ b: Data, position p: inout Int, end: Int, dictionary: Bool, depth: Int, into args: inout [DTXValue]) throws {
+        guard depth < 8 else { throw TVPairError.malformed("Instruments auxiliary depth") }
+        while p < end {
+            guard args.count < 64, p + 4 <= end else { throw TVPairError.malformed("Instruments auxiliary count") }
+            if dictionary {
+                guard number(b, p) & 0xff == 10 else { throw TVPairError.unsupported("Instruments non-positional auxiliary key") }
+                p += 4
+                guard p + 4 <= end else { throw TVPairError.malformed("Instruments missing auxiliary value") }
+            }
+            let type = number(b, p) & 0xff; p += 4
+            switch type {
+            case 10:
+                if dictionary { args.append(.null) } // Legacy NULLs separate flat values.
+            case 3:
+                guard p + 4 <= end else { throw TVPairError.malformed("Instruments integer argument") }
+                args.append(.integer(Int64(number(b, p)))); p += 4
+            case 6, 9:
+                guard p + 8 <= end else { throw TVPairError.malformed("Instruments wide argument") }
+                let v = number(b, p, 8); p += 8
+                args.append(type == 6 ? .integer(Int64(bitPattern: v)) : .real(Double(bitPattern: v)))
+            case 1, 2:
+                guard p + 4 <= end else { throw TVPairError.malformed("Instruments argument size") }
+                let size = Int(number(b, p)); p += 4
+                guard size <= end - p else { throw TVPairError.malformed("Instruments argument boundary") }
+                let bytes = b.subdata(in: p..<p + size); p += size
+                if type == 2 { args.append(bytes.isEmpty ? .null : try DTXValue.unarchive(bytes)) }
+                else {
+                    guard let string = String(data: bytes, encoding: .utf8) else { throw TVPairError.malformed("Instruments string argument") }
+                    args.append(.string(string))
+                }
+            case 0xf0:
+                guard p + 12 <= end else { throw TVPairError.malformed("Instruments nested auxiliary header") }
+                let size = number(b, p + 4, 8); p += 12
+                guard size <= UInt64(end - p) else { throw TVPairError.malformed("Instruments nested auxiliary boundary") }
+                let nestedEnd = p + Int(size)
+                try decodeAuxiliaryEntries(b, position: &p, end: nestedEnd, dictionary: true, depth: depth + 1, into: &args)
+            default: throw TVPairError.unsupported("Instruments argument type \(type)")
+            }
+        }
     }
     static func receive(from stream: any ByteTransport, deadline: Date) async throws -> DTXMessage {
         var body = Data(), first: Data?, expected = 0, fragments = 1
