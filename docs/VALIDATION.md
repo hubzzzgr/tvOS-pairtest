@@ -24,6 +24,16 @@ The user supplied screenshots from LiveContainer while testing another iPhone. T
 
 Build 2 tracks browser failures per service, suppresses blanket permission warnings after successful discovery, distinguishes regular/saved-record endpoints from Apple TV manual setup, and adds explicit device-initiated iOS 27/iPadOS 27 onboarding. Its listener advertisement can still be blocked by LiveContainer's host declarations; successful browsing of a different service does not establish publishing permission. The new onboarding implementation remains physically unvalidated until a user repeats the test with build 2.
 
+## Recorded build-4 CI evidence — 2026-11-07
+
+[CI run 42347425656](https://github.com/hubzzzgr/tvOS-pairtest/actions/runs/42347425656) succeeded for source `89ef828fd5013adde51d6a1483503609a1288400`:
+
+- All **52 tests** passed with zero failures. Seven PSK tests used a separate OpenSSL **3.5.9** CLI server over real loopback TCP; the client used the bundled OpenSSL **3.6.5** memory-BIO adapter. Both 0x00AF and 0x008C completed handshake and encrypted round trips, including multi-record payloads and Data slices. Wrong PSKs, an unconfigured suite and tampered ciphertext were rejected. Read timeout and cancellation passed. No TLS integration test was skipped.
+- iOS arm64 archive, unsigned packaging, simulator build, installation and launch passed with Xcode 16.4 / Swift 6.1.2 / iOS 18.5 SDK. The simulator successfully loaded the embedded OpenSSL framework; its home-screen screenshot was downloaded and visually reviewed.
+- The packaged app has build **4**, minimum OS **17.0**, all five Bonjour declarations, zero app extensions and bundled MIT/Apache notices. The app executable and OpenSSL framework are arm64 Mach-O files without code-signature load commands. The distributor's framework signature is removed from the release copy.
+- The **2,533,949-byte** IPA's SHA-256 matches CI's manifest and GitHub's uploaded release digest: `e15c7f02c2eabaafb79b034ca9cf2e2e9c65b6b6a7e05ee763e19b5bc99b713a`.
+- [Public prerelease and direct download](https://github.com/hubzzzgr/tvOS-pairtest/releases/tag/build-4) target the tested source revision. Loopback TLS interoperability does not establish a physical CDTunnel or developer-service result on iOS/tvOS; the user's LiveContainer retest remains required.
+
 ## Recorded build-3 CI evidence — 2026-11-07
 
 [CI run 42345217207](https://github.com/hubzzzgr/tvOS-pairtest/actions/runs/42345217207) succeeded for source `d6a1093b8c346b17f4bb8ff18a2ce51ca0093eeb`:
