@@ -36,6 +36,15 @@ jobs:
           export TVPAIR_OPENSSL_CLI="$(brew --prefix openssl@3)/bin/openssl"
           "$TVPAIR_OPENSSL_CLI" version | tee artifacts/openssl-peer.txt
           swift test --package-path Packages/TVPairCore 2>&1 | tee artifacts/tests.log
+      - name: Upload protocol test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: TVPair-protocol-tests
+          path: |
+            artifacts/tests.log
+            artifacts/openssl-peer.txt
+          retention-days: 14
       - name: Archive iOS arm64 without signing
         if: ${{ !cancelled() }}
         run: |

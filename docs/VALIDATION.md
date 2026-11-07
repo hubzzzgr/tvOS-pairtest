@@ -4,6 +4,12 @@
 
 The implementation environment remains Windows. There has been no agent-operated physical iPhone or Apple TV test. User-reported LiveContainer observations are recorded separately below; the build-2 retest now shows the app reporting successful onboarding authentication and record persistence. CI verifies compilation, synthetic protocol behavior and simulator launch only. No real pairing credentials are included in this repository.
 
+## User-reported build-4 retest and build-5 developer tests — 2026-11-07
+
+The user's screenshot on an **iPhone15,4 / iOS 27.0.1** shows pairing, persistence, trusted tunnel establishment and RSD device-information retrieval passing inside LiveContainer. Developer-service availability is blocked while RSD advertises `com.apple.instruments.dtservicehub`; the name is unavailable. Build 4 tested only CoreDevice deviceinfo and only read `DeviceName` from RSD, explaining both limitations. These observations are user-reported; no agent-operated physical test or Apple TV result is established.
+
+Build 5 probes the native Instruments DTX hub with a capability exchange, deviceinfo channel and read-only running-process request. Advertisement alone is insufficient. It can show the saved pairing-record name with explicit provenance when RSD omits the name. The result retains the connection and offers explicit TikTok/Instagram Pause and Resume tests using exact bundle-ID lookup, immediate PID recheck and acknowledged suspend/resume requests. It does not claim an acknowledged request proves suspension. Physical DTX/process-control interoperability, including permissions for these App Store apps, remains unverified.
+
 ## User-reported build-3 retest and build-4 transport change — 2026-11-07
 
 The next screenshots show onboarding initiation, authentication and persistence passing, followed by `Unsupported: TLS did not negotiate one of the required pre-shared-key cipher suites`. Reaching this guard implies that the outbound saved-record verification returned successfully and an authenticated listener port was received. The screenshot does not contain the negotiated numeric suite or prove a valid PSK tunnel; no developer-service success is claimed. The incoming resolution row was incorrectly left as blocked even though a later outbound connection had resolved.

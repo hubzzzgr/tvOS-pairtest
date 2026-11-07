@@ -7,6 +7,7 @@ public enum TVPairError: Error, LocalizedError, Equatable {
     case malformed(String), unsupported(String), rejected(Int, Int?)
     case authentication, keychain(Int32), storage, invalidRecord(String)
     case advertisement(Int32)
+    case developer(Int)
 
     public var errorDescription: String? {
         switch self {
@@ -20,6 +21,7 @@ public enum TVPairError: Error, LocalizedError, Equatable {
         case let .malformed(context): return "Unexpected protocol response: \(context)."
         case let .unsupported(context): return "Unsupported: \(context)."
         case let .rejected(code, retry): return "The device rejected pairing (code \(code))." + (retry.map { " Retry after \($0) seconds." } ?? "")
+        case let .developer(code): return "The paired device rejected the developer operation (code \(code)). Pairing and tunnel access do not guarantee permission to pause an App Store app."
         case .authentication: return "Cryptographic authentication failed. No authenticated session was accepted."
         case let .advertisement(code): return "The pairable-host advertisement failed (DNS-SD code \(code)). Browsing other services may still work. In LiveContainer, the host must allow _remotepairing-pairable-host._tcp and Local Network access for incoming iPhone pairing."
         case let .keychain(code): return "Keychain access failed (OSStatus \(code)). LiveContainer may restrict guest Keychain access. Protected file storage is available only with your explicit consent."
@@ -191,6 +193,7 @@ public struct DiagnosticEvent: Identifiable, Codable, Sendable {
         case let .some(.keychain(code)): errorDomain = "OSStatus"; errorCode = code
         case let .some(.advertisement(code)): errorDomain = "DNS-SD"; errorCode = code
         case let .some(.rejected(code, _)): errorDomain = "Pairing"; errorCode = Int32(exactly: code)
+        case let .some(.developer(code)): errorDomain = "Instruments"; errorCode = Int32(exactly: code)
         default: errorDomain = nil; errorCode = nil
         }
     }

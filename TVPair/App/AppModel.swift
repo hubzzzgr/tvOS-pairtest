@@ -17,6 +17,11 @@ final class AppModel: ObservableObject {
     @Published var fileStorage = UserDefaults.standard.bool(forKey: "TVPair.protectedFileStorage")
     @Published var pin = ""
     @Published var information = DeviceInformation()
+    @Published private(set) var processBusy = false
+    @Published private(set) var processResults: [ProcessTestApp: String] = [:]
+    private var developerConnection: DeveloperConnection?
+    private var processOperation: Task<Void, Never>?
+    var canTestProcesses: Bool { !busy && !processBusy && information.instrumentsServiceResponded && developerConnection != nil }
     @Published private(set) var hostPIN: String?
     @Published private(set) var hosting = false
     @Published private(set) var tcpOnly = false
@@ -24,7 +29,7 @@ final class AppModel: ObservableObject {
     private var hostRecordID: UUID?
     private var hostEndpoint: ConnectionEndpoint?
     var canRetryHostedConnection: Bool {
-        !busy && hosting && hostEndpoint != nil && saved.contains { $0.id == hostRecordID }
+        !busy && !processBusy && hosting && hostEndpoint != nil && saved.contains { $0.id == hostRecordID }
     }
     @Published var lastSavedID: UUID?
     private var operation: Task<Void, Never>?
@@ -93,7 +98,8 @@ final class AppModel: ObservableObject {
         message = text; log(check, result, text)
     }
     func start(endpoint: ConnectionEndpoint, service: ServiceKind, discovered: Bool, recordID: UUID? = nil) {
-        guard !busy else { return }
+        guard !busy && !processBusy else { return }
+        developerConnection?.cancel(); developerConnection = nil; processResults = [:]
         // A retry for this onboarding record must not tear down the channel
         // that may be keeping the other iPhone's session-limited trust alive.
         if !(hosting && recordID != nil && recordID == hostRecordID) { finishPresentation() }
@@ -104,7 +110,8 @@ final class AppModel: ObservableObject {
         operation = Task { [weak self] in
             guard let self else { return }
             defer {
-                self.activeTransport?.cancel(); self.activeTransport = nil; self.busy = false
+                if self.developerConnection == nil { self.activeTransport?.cancel() }
+                self.activeTransport = nil; self.busy = false
                 self.pinContinuation?.resume(throwing: CancellationError()); self.pinContinuation = nil; self.pin = ""
                 for check in DiagnosticCheck.allCases where self.checks[check] == nil || self.checks[check] == .running {
                     let skipped = self.tcpOnly && ![DiagnosticCheck.discovery, .resolution, .tcp].contains(check)
@@ -165,7 +172,9 @@ final class AppModel: ObservableObject {
                 let tunnel = try await TrustedTunnel.establish(endpoint: trustedEndpoint, session: trustedClient, report: reporter)
                 self.activeTransport = tunnel.transport
                 try self.state.acceptTunnel(); self.log(.tunnel, .passed, "The authenticated TLS-PSK connection completed a valid CDTunnel handshake.")
-                self.information = try await DeveloperServiceClient.inspect(tunnel: tunnel, hostIdentifier: authenticated.hostIdentifier, report: reporter, updateInformation: { [weak self] value in await self?.receiveInformation(value) })
+                let developer = DeveloperConnection(tunnel: tunnel, hostIdentifier: authenticated.hostIdentifier, savedName: authenticated.deviceName)
+                self.developerConnection = developer
+                self.information = try await developer.inspect(report: reporter, updateInformation: { [weak self] value in await self?.receiveInformation(value) })
                 try Task.checkCancellation(); try self.state.move(to: .finished)
                 self.message = self.fullSuccess ? "Authentication, trusted tunnel, and a read-only developer-service request succeeded." : "The authenticated tunnel succeeded. Review the independent checks for developer-service limitations."
             } catch {
@@ -178,8 +187,9 @@ final class AppModel: ObservableObject {
         }
     }
     func startHosting() {
-        guard !busy else { return }
+        guard !busy && !processBusy else { return }
         finishPresentation(); busy = true; hosting = true; presentPairing = true; service = .pairableHost
+        processResults = [:]
         tcpOnly = false
         checks = [:]; state = PairingState(); information = DeviceInformation(); errorMessage = nil; lastSavedID = nil
         pin = ""; hostPIN = nil; stageStart = [:]; activeCheck = nil
@@ -187,7 +197,8 @@ final class AppModel: ObservableObject {
         operation = Task { [weak self] in
             guard let self else { return }
             defer {
-                self.activeTransport?.cancel(); self.activeTransport = nil; self.hostPIN = nil; self.busy = false; self.operation = nil
+                if self.developerConnection == nil { self.activeTransport?.cancel() }
+                self.activeTransport = nil; self.hostPIN = nil; self.busy = false; self.operation = nil
                 if !self.state.authenticated { self.hostListener?.stop(); self.hostListener = nil; self.hosting = false }
                 for check in DiagnosticCheck.allCases where self.checks[check] == nil || self.checks[check] == .running {
                     self.log(check, self.stage == .cancelled ? .cancelled : .blocked, "This check did not complete in this attempt.")
@@ -234,7 +245,9 @@ final class AppModel: ObservableObject {
                 let tunnel = try await TrustedTunnel.establish(endpoint: endpoint, session: client, report: reporter)
                 self.activeTransport = tunnel.transport
                 try self.state.acceptTunnel(); self.log(.tunnel, .passed, "The authenticated TLS-PSK connection completed CDTunnel negotiation.")
-                self.information = try await DeveloperServiceClient.inspect(tunnel: tunnel, hostIdentifier: verified.hostIdentifier, report: reporter, updateInformation: { [weak self] info in await self?.receiveInformation(info) })
+                let developer = DeveloperConnection(tunnel: tunnel, hostIdentifier: verified.hostIdentifier, savedName: verified.deviceName)
+                self.developerConnection = developer
+                self.information = try await developer.inspect(report: reporter, updateInformation: { [weak self] info in await self?.receiveInformation(info) })
                 try self.state.move(to: .finished)
                 self.message = self.fullSuccess ? "Device-initiated pairing and the developer-service request succeeded." : "Device-initiated authentication completed. Review the remaining independent checks."
             } catch {
@@ -256,8 +269,32 @@ final class AppModel: ObservableObject {
         start(endpoint: endpoint, service: .remotePairing, discovered: true, recordID: id)
     }
     func finishPresentation() {
-        guard !busy else { return }
+        guard !busy && !processBusy else { return }
+        developerConnection?.cancel(); developerConnection = nil
         hostListener?.stop(); hostListener = nil; hosting = false; hostPIN = nil; hostRecordID = nil; hostEndpoint = nil
+    }
+    func testProcess(_ app: ProcessTestApp, action: ProcessTestAction) {
+        guard canTestProcesses, let developer = developerConnection else { return }
+        processBusy = true; processResults[app] = "\(action.rawValue) test in progress…"
+        processOperation = Task { [weak self] in
+            guard let self else { return }
+            let started = Date()
+            defer { self.processBusy = false; self.processOperation = nil }
+            do {
+                let result = try await developer.perform(app: app, action: action)
+                let text = result.message(app: app, action: action)
+                self.processResults[app] = text
+                let status: CheckResult
+                if case .acknowledged = result { status = .passed } else { status = .notAttempted }
+                // Separate manual test: preserve the read-only availability check.
+                self.append(DiagnosticEvent(operation: .services, service: self.service, result: status, message: "Manual \(action.rawValue.lowercased()) test: " + text, duration: Date().timeIntervalSince(started)))
+            } catch {
+                let safe = TVPairError.safe(error), cancelled = Task.isCancelled || safe == .cancelled
+                let text = cancelled ? "Test cancelled. A request may already have reached the device. Reconnect to use Resume if needed." : safe.localizedDescription
+                self.processResults[app] = text
+                self.append(DiagnosticEvent(operation: .services, service: self.service, result: cancelled ? .cancelled : .failed, message: "Manual \(action.rawValue.lowercased()) test for \(app.rawValue): " + text, duration: Date().timeIntervalSince(started), failure: safe))
+            }
+        }
     }
     private func receiveInformation(_ value: DeviceInformation) { information = value }
     private func waitForPIN() async throws -> String {
@@ -278,7 +315,7 @@ final class AppModel: ObservableObject {
         guard pin.count == 6, pin.allSatisfy({ $0.isASCII && $0.isNumber }) else { return }
         let code = pin; pin = ""; pinContinuation?.resume(returning: code); pinContinuation = nil; pinRequestID = nil
     }
-    func cancel() { operation?.cancel(); activeTransport?.cancel(); hostListener?.stop(); hostPIN = nil; cancelPIN() }
+    func cancel() { operation?.cancel(); processOperation?.cancel(); developerConnection?.cancel(); developerConnection = nil; activeTransport?.cancel(); hostListener?.stop(); hostPIN = nil; cancelPIN() }
     func importRecord(_ url: URL) async {
         guard !busy else { return }
         let scoped = url.startAccessingSecurityScopedResource(); defer { if scoped { url.stopAccessingSecurityScopedResource() } }

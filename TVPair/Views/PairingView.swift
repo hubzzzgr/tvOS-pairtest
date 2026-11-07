@@ -45,13 +45,38 @@ struct PairingView: View {
                 if model.state.authenticated {
                     Section("Authenticated device information") {
                         DetailRow(title: "Name", value: model.information.name)
+                        if model.information.name != nil { DetailRow(title: "Name source", value: model.information.nameSource) }
                         DetailRow(title: "Identifier", value: model.information.identifier)
                         DetailRow(title: "Product type", value: model.information.productType)
                         DetailRow(title: "OS version", value: model.information.osVersion)
                     }
+                    Section {
+                        Text(model.information.developerServiceDetail).font(.footnote).foregroundStyle(.secondary)
+                    } header: { Text("Developer-service result") }
                     if !model.information.developerServices.isEmpty {
                         Section("Advertised developer services") {
                             ForEach(model.information.developerServices, id: \.self) { Text($0).font(.caption.monospaced()).textSelection(.enabled) }
+                        }
+                    }
+                    if model.state.trustedTunnel {
+                        Section {
+                            ForEach(ProcessTestApp.allCases) { app in
+                                VStack(alignment: .leading, spacing: 10) {
+                                    Text(app.rawValue).font(.headline)
+                                    HStack {
+                                        Button { model.testProcess(app, action: .pause) } label: { Label("Pause", systemImage: "pause.fill") }
+                                        Spacer()
+                                        Button { model.testProcess(app, action: .resume) } label: { Label("Resume", systemImage: "play.fill") }
+                                    }.buttonStyle(.bordered).disabled(!model.canTestProcesses)
+                                    if let text = model.processResults[app] { Text(text).font(.footnote).foregroundStyle(.secondary).textSelection(.enabled) }
+                                }.padding(.vertical, 4)
+                            }
+                            if model.processBusy { ProgressView("Waiting for the paired device…") }
+                            if !model.information.instrumentsServiceResponded {
+                                Text("Pause/resume requires the Instruments hub to pass its read-only probe. See the developer-service result above.").font(.footnote).foregroundStyle(.orange)
+                            }
+                        } header: { Text("App pause / resume test") } footer: {
+                            Text("Open the target app on the OTHER device first. iOS may deny suspension of App Store apps. An acknowledgement confirms the request, not a verified frozen state. Use Resume to undo a pause; closing this screen does not resume the app.")
                         }
                     }
                 }
@@ -62,7 +87,7 @@ struct PairingView: View {
             }
             .navigationTitle("Connection test").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) {
-                Button(model.busy ? "Cancel" : "Done") { if model.busy { model.cancel() } else { model.finishPresentation(); dismiss() } }
+                Button(model.busy || model.processBusy ? "Cancel" : "Done") { if model.busy || model.processBusy { model.cancel() } else { model.finishPresentation(); dismiss() } }
             } }
         }
     }

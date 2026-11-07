@@ -11,6 +11,11 @@ public struct TunnelConfiguration: Sendable {
 public struct TrustedTunnel: Sendable {
     public let transport: any ByteTransport
     public let configuration: TunnelConfiguration
+    let router: TunnelPacketRouter
+    public init(transport: any ByteTransport, configuration: TunnelConfiguration) {
+        self.transport = transport; self.configuration = configuration
+        router = TunnelPacketRouter(upstream: transport, configuration: configuration)
+    }
     public static func establish(endpoint: ConnectionEndpoint, session: RemotePairingClient, report: PairingReporter = { _,_,_,_ in }) async throws -> TrustedTunnel {
         await report(.openingTunnel, .tunnel, .running, "Requesting the device's authenticated TCP tunnel listener.")
         let listener = try await session.createTunnelListener()
@@ -43,7 +48,7 @@ public final class TunnelTCPTransport: ByteTransport, @unchecked Sendable {
     private let stream: TunnelTCPStream
     public init(tunnel: TrustedTunnel, port: UInt16? = nil) throws {
         upstream = tunnel.transport
-        stream = try TunnelTCPStream(upstream: tunnel.transport, configuration: tunnel.configuration, port: port ?? tunnel.configuration.rsdPort)
+        stream = try TunnelTCPStream(upstream: tunnel.transport, router: tunnel.router, configuration: tunnel.configuration, port: port ?? tunnel.configuration.rsdPort)
     }
     public func connect(timeout: TimeInterval) async throws { try await stream.connect(timeout: timeout) }
     public func send(_ data: Data, timeout: TimeInterval) async throws { try await stream.send(data, timeout: timeout) }
@@ -53,9 +58,10 @@ public final class TunnelTCPTransport: ByteTransport, @unchecked Sendable {
 
 actor TunnelTCPStream {
     let upstream: any ByteTransport
+    let router: TunnelPacketRouter
     let source: Data
     let destination: Data
-    let sourcePort: UInt16
+    var sourcePort: UInt16 = 0
     let destinationPort: UInt16
     var sequence: UInt32
     var acknowledgement: UInt32 = 0
@@ -64,40 +70,23 @@ actor TunnelTCPStream {
     var connected = false
     var ended = false
 
-    init(upstream: any ByteTransport, configuration: TunnelConfiguration, port: UInt16) throws {
+    init(upstream: any ByteTransport, router: TunnelPacketRouter, configuration: TunnelConfiguration, port: UInt16) throws {
         guard let source = IPv6TCPPacket.address(configuration.clientAddress), let destination = IPv6TCPPacket.address(configuration.serverAddress), port > 0 else { throw TVPairError.invalidEndpoint }
-        self.upstream = upstream; self.source = source; self.destination = destination
-        sourcePort = UInt16.random(in: 49152...65535); destinationPort = port; sequence = UInt32.random(in: 0...UInt32.max)
+        self.upstream = upstream; self.router = router; self.source = source; self.destination = destination
+        destinationPort = port; sequence = UInt32.random(in: 0...UInt32.max)
     }
     func emit(flags: UInt8, payload: Data = Data()) async throws {
         let packet = IPv6TCPPacket.make(source: source, destination: destination, sourcePort: sourcePort, destinationPort: destinationPort, sequence: sequence, acknowledgement: acknowledgement, flags: flags, payload: payload)
         try await upstream.send(packet, timeout: 10)
     }
     func receive(deadline: Date) async throws -> IPv6TCPPacket.Segment {
-        for _ in 0..<128 {
-            try Task.checkCancellation()
-            guard deadline.timeIntervalSinceNow > 0 else { throw TVPairError.timeout }
-            let header = try await upstream.readExactly(40, timeout: deadline.timeIntervalSinceNow)
-            guard header[0] >> 4 == 6 else { throw TVPairError.malformed("CDTunnel IPv6 version") }
-            let size = Int(header[4]) << 8 | Int(header[5])
-            guard size > 0 && size <= 65535 else { throw TVPairError.malformed("IPv6 payload length") }
-            let payload = try await upstream.readExactly(size, timeout: max(0.001, deadline.timeIntervalSinceNow))
-            // ICMPv6 and packets for other connections may share the tunnel.
-            guard header.subdata(in: 8..<24) == destination, header.subdata(in: 24..<40) == source else { continue }
-            guard header[6] == 6 else {
-                if header[6] == 58 { continue }
-                throw TVPairError.unsupported("IPv6 extension headers on the diagnostic TCP stream")
-            }
-            let segment = try IPv6TCPPacket.parse(header + payload)
-            guard segment.sourcePort == destinationPort, segment.destinationPort == sourcePort else { continue }
-            if segment.flags & 4 != 0 { throw TVPairError.closed }
-            window = segment.window
-            return segment
-        }
-        throw TVPairError.malformed("too many unrelated tunnel packets")
+        let segment = try await router.receive(localPort: sourcePort, remotePort: destinationPort, deadline: deadline)
+        if segment.flags & 4 != 0 { throw TVPairError.closed }
+        window = segment.window; return segment
     }
     func connect(timeout: TimeInterval) async throws {
-        guard !connected else { throw TVPairError.malformed("TCP stream already connected") }
+        guard !connected && sourcePort == 0 else { throw TVPairError.malformed("TCP stream already used") }
+        sourcePort = try await router.register(self, remotePort: destinationPort)
         let deadline = Date().addingTimeInterval(timeout), expected = sequence &+ 1
         try await emit(flags: 2)
         let segment = try await receive(deadline: deadline)
@@ -116,6 +105,12 @@ actor TunnelTCPStream {
             // Duplicate/out-of-order payload is not delivered; cumulative ACK asks for expected bytes.
             try await emit(flags: 0x10)
         }
+    }
+    func receiveWhileIdle(_ segment: IPv6TCPPacket.Segment) async throws {
+        guard connected else { throw TVPairError.malformed("idle TCP stream state") }
+        window = segment.window
+        if segment.flags & 4 != 0 { ended = true; return }
+        try await consume(segment)
     }
     func send(_ data: Data, timeout: TimeInterval) async throws {
         guard connected && !ended else { throw TVPairError.closed }
@@ -152,8 +147,59 @@ actor TunnelTCPStream {
     }
 }
 
+/// Cooperatively route the RSD and Instruments TCP connections sharing one
+/// CDTunnel. Idle connections still receive TCP acknowledgements; their data
+/// remains buffered for the owning stream instead of being discarded.
+actor TunnelPacketRouter {
+    private final class Entry {
+        weak var stream: TunnelTCPStream?
+        let remotePort: UInt16
+        init(_ stream: TunnelTCPStream, remotePort: UInt16) { self.stream = stream; self.remotePort = remotePort }
+    }
+    let upstream: any ByteTransport
+    let configuration: TunnelConfiguration
+    private var streams: [UInt16: Entry] = [:]
+    private var reading = false
+    init(upstream: any ByteTransport, configuration: TunnelConfiguration) { self.upstream = upstream; self.configuration = configuration }
+    func register(_ stream: TunnelTCPStream, remotePort: UInt16) throws -> UInt16 {
+        streams = streams.filter { $0.value.stream != nil }
+        guard streams.count < 8 else { throw TVPairError.malformed("tunnel stream registration limit") }
+        let initial = Int.random(in: 0..<16384)
+        for offset in 0...8 {
+            let port = UInt16(49152 + (initial + offset) % 16384)
+            if streams[port] == nil { streams[port] = Entry(stream, remotePort: remotePort); return port }
+        }
+        throw TVPairError.malformed("tunnel local port allocation")
+    }
+    func receive(localPort: UInt16, remotePort: UInt16, deadline: Date) async throws -> IPv6TCPPacket.Segment {
+        guard !reading else { throw TVPairError.malformed("concurrent tunnel readers") }
+        reading = true; defer { reading = false }
+        for _ in 0..<512 {
+            try Task.checkCancellation()
+            guard deadline.timeIntervalSinceNow > 0 else { throw TVPairError.timeout }
+            let header = try await upstream.readExactly(40, timeout: deadline.timeIntervalSinceNow).zeroBased
+            guard header[0] >> 4 == 6 else { throw TVPairError.malformed("CDTunnel IPv6 version") }
+            let count = Int(header[4]) << 8 | Int(header[5])
+            guard count > 0 else { throw TVPairError.malformed("IPv6 payload length") }
+            let payload = try await upstream.readExactly(count, timeout: max(0.001, deadline.timeIntervalSinceNow))
+            guard header.subdata(in: 8..<24) == IPv6TCPPacket.address(configuration.serverAddress),
+                  header.subdata(in: 24..<40) == IPv6TCPPacket.address(configuration.clientAddress) else { continue }
+            guard header[6] == 6 else {
+                if header[6] == 58 { continue }
+                throw TVPairError.unsupported("IPv6 extension headers on the diagnostic TCP stream")
+            }
+            let segment = try IPv6TCPPacket.parse(header + payload)
+            if segment.destinationPort == localPort && segment.sourcePort == remotePort { return segment }
+            if let entry = streams[segment.destinationPort], entry.remotePort == segment.sourcePort, let owner = entry.stream {
+                try await owner.receiveWhileIdle(segment)
+            }
+        }
+        throw TVPairError.malformed("too many unrelated tunnel packets")
+    }
+}
+
 enum IPv6TCPPacket {
-    struct Segment {
+    struct Segment: Sendable {
         let sourcePort: UInt16, destinationPort: UInt16
         let sequence: UInt32, acknowledgement: UInt32
         let flags: UInt8, window: UInt16

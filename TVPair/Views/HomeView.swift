@@ -10,7 +10,7 @@ struct RootView: View {
             NavigationStack { DiagnosticsView() }.tabItem { Label("Diagnostics", systemImage: "waveform.path.ecg") }
         }
         .tint(.cyan)
-        .sheet(isPresented: $model.presentPairing, onDismiss: { model.finishPresentation() }) { PairingView().environmentObject(model).interactiveDismissDisabled(model.busy) }
+        .sheet(isPresented: $model.presentPairing, onDismiss: { model.finishPresentation() }) { PairingView().environmentObject(model).interactiveDismissDisabled(model.busy || model.processBusy) }
         .alert("TVPair", isPresented: Binding(get: { model.errorMessage != nil && !model.presentPairing }, set: { if !$0 { model.errorMessage = nil } })) {
             Button("OK") { model.errorMessage = nil }
         } message: { Text(model.errorMessage ?? "") }

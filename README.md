@@ -30,6 +30,12 @@ Discovery errors are tracked per service type. If any service has been observed 
 
 ## Build and install
 
+Build 5 adds a read-only Instruments hub probe alongside CoreDevice deviceinfo. A hub advertisement alone does not pass developer-service availability; the DTX capability handshake, channel request and `runningProcesses` reply must succeed. When RSD omits the name, the saved-record name is shown with **Name source: Saved pairing record**. No Bonjour name is presented as an authenticated device property.
+
+After the Instruments probe passes, the connection result has manual **Pause** and **Resume** tests for TikTok and Instagram. Each action resolves the exact bundle identifier twice, acts only on a stable positive PID and awaits the device's `suspendPid:` / `resumePid:` reply. Acknowledgement is reported separately from a verified frozen state. iOS may refuse process control on App Store apps. Use Resume before finishing the test; closing TVPair does not automatically resume a paused process. No termination, launch, monitoring or automatic freeze action is included.
+
+The authenticated tunnel and Instruments connection stay open while the result is displayed. RSD and Instruments TCP packets are routed to their owning stream with bounded buffering; an idle stream's data is no longer discarded when another service reads.
+
 Open `TVPair.xcodeproj` in Xcode 16.4 or newer on macOS. The checked-in project needs no project generator or CocoaPods. Its local Swift package resolves MIT-licensed BigInt 5.7.0 and Apache-2.0 OpenSSL-Package 3.6.5000 (OpenSSL 3.6.5). Both dependency locks pin exact revisions; SwiftPM also verifies the OpenSSL XCFramework ZIP checksum. Redistribution notices are bundled in the app. To regenerate the project after adding app Swift files: `node scripts/generate-project.mjs` (Windows or macOS).
 
 GitHub Actions **Build TVPair** runs automatically on `main` and supports **Run workflow**. It resolves dependencies, runs the core tests on macOS, archives for iOS arm64 with signing disabled, creates `TVPair-unsigned.ipa`, uploads logs and the unsigned build, then attempts a simulator launch with a screenshot. Failed builds retain diagnostic logs and Xcode result bundles.

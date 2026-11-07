@@ -2,7 +2,7 @@
 
 ## idevice protocol reference (MIT)
 
-Native Swift RPPairing, OPACK, CDTunnel and RemoteXPC protocol framing/stages were developed with reference to [jkcoxson/idevice](https://github.com/jkcoxson/idevice), revision `89702099f4d7552f704f93b4526756abda319ceb`. Attribution is preserved for protocol implementation adaptations.
+Native Swift RPPairing, OPACK, CDTunnel, RemoteXPC and Instruments DTX protocol framing/stages were developed with reference to [jkcoxson/idevice](https://github.com/jkcoxson/idevice), revision `89702099f4d7552f704f93b4526756abda319ceb`. Attribution is preserved for protocol implementation adaptations.
 
 Copyright 2026 Jackson Coxson
 
