@@ -81,6 +81,7 @@ public actor PSKTLSTransport: ByteTransport {
         do {
             guard connected else { throw TVPairError.authentication }
             guard data.count <= 1_048_576 else { throw TVPairError.malformed("TLS write limit") }
+            let data = data.zeroBased
             let deadline = Date().addingTimeInterval(timeout)
             var offset = 0
             while offset < data.count {

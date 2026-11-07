@@ -22,7 +22,9 @@ final class PSKTLSTests: XCTestCase {
         let line = Data((0..<12000).map { UInt8(65 + $0 % 26) })
         let request = (0..<3).reduce(into: Data()) { data, _ in data.append(line); data.append(10) }
         let response = (0..<3).reduce(into: Data()) { data, _ in data.append(contentsOf: line.reversed()); data.append(10) }
-        try await tls.send(request, timeout: 5)
+        // Data slices can retain a nonzero startIndex on Apple platforms.
+        let sliced = (Data([0, 0]) + request).dropFirst(2)
+        try await tls.send(sliced, timeout: 5)
         var actual = try await tls.readExactly(7, timeout: 5)
         actual.append(try await tls.readExactly(response.count - 7, timeout: 5))
         XCTAssertEqual(actual, response)
