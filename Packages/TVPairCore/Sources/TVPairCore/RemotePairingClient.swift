@@ -40,8 +40,9 @@ public actor RemotePairingClient {
         return try TLV8.decode(bytes)
     }
 
-    public func authenticate(endpoint: ConnectionEndpoint, existingRecord: PairingRecord? = nil, requestPIN: @Sendable () async throws -> String, report: PairingReporter) async throws -> PairingRecord {
+    public func authenticate(endpoint: ConnectionEndpoint, service: ServiceKind = .manualPairing, existingRecord: PairingRecord? = nil, requestPIN: @Sendable () async throws -> String, report: PairingReporter) async throws -> PairingRecord {
         guard sequence == 0 else { throw TVPairError.malformed("a new transport is required for every session") }
+        guard existingRecord != nil || service.supportsNewPairing else { throw TVPairError.unsupported("the regular Remote Pairing endpoint requires an existing record. Use Apple TV's Manual Remote Pairing service, or Pair with iPhone / iPad for device-initiated iOS 27 onboarding") }
         try Task.checkCancellation()
         await report(.connecting, .tcp, .running, "Opening the advertised TCP endpoint.")
         try await transport.connect(timeout: 10)
@@ -49,10 +50,14 @@ public actor RemotePairingClient {
         await report(.connecting, .tcp, .passed, "TCP is connected. Authentication has not yet succeeded.")
         await report(.negotiating, .initiation, .running, "Negotiating RPPairing wire protocol version 19.")
         try await sendPlain(["request": ["_0": ["handshake": ["_0": ["hostOptions": ["attemptPairVerify": true], "wireProtocolVersion": 19]]]]])
-        let handshake = try await receivePlain()
+        let handshake: [String: Any]
+        do { handshake = try await receivePlain() }
+        catch TVPairError.closed { throw TVPairError.unsupported("the peer closed before the RPPairing handshake. Check the selected service and matching record; Developer Mode alone does not authorize a trusted endpoint") }
         guard let info = nested(handshake, "response", "_1", "handshake", "_0") as? [String: Any],
               let peer = info["peerDeviceInfo"] as? [String: Any], let model = peer["model"] as? String else { throw TVPairError.malformed("handshake peerDeviceInfo") }
-        if let version = info["wireProtocolVersion"] as? Int, version != 19 { throw TVPairError.unsupported("peer wire protocol version \(version)") }
+        if let version = info["wireProtocolVersion"] as? Int {
+            try PairingWireVersion.validatePeer(maximum: version, minimum: info["minimumSupportedWireProtocolVersion"] as? Int ?? 8)
+        }
         peerInfo = peer
         await report(.verifying, .initiation, .passed, "RPPairing handshake received. Peer metadata remains unverified.")
 

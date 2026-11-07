@@ -16,7 +16,7 @@ struct PairingView: View {
                         }
                         Text(model.summary).font(.title2.bold()).multilineTextAlignment(.center)
                         Text(model.message).font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
-                        if model.busy && model.stage != .awaitingPIN { ProgressView() }
+                        if model.busy && model.stage != .awaitingPIN && model.stage != .displayingPIN { ProgressView() }
                     }.frame(maxWidth: .infinity).padding(.vertical, 20)
                 }.listRowBackground(Color.clear)
                 if model.stage == .awaitingPIN && model.busy {
@@ -26,6 +26,15 @@ struct PairingView: View {
                             .onChange(of: model.pin) { _, value in model.pin = String(value.filter { $0.isASCII && $0.isNumber }.prefix(6)) }
                         Button("Authenticate") { pinFocused = false; model.submitPIN() }.disabled(model.pin.count != 6)
                     } header: { Text("Code displayed on Apple TV") } footer: { Text("The protocol requested this code. It is never saved or included in diagnostic logs. Entry times out after 90 seconds.") }
+                }
+                if let code = model.hostPIN, model.stage == .displayingPIN, model.busy {
+                    Section {
+                        Text(code).font(.system(size: 40, weight: .semibold, design: .monospaced)).frame(maxWidth: .infinity).privacySensitive()
+                        Text("Enter this code on the OTHER iPhone or iPad. Keep this app and the other device's pairing screen open. The code expires after 90 seconds.").font(.footnote).foregroundStyle(.secondary)
+                    } header: { Text("Code for the other device") }
+                }
+                if model.hosting {
+                    Section { Text("iPhone Wi-Fi onboarding may last only while this host session remains open. Closing this result stops the host; saved credentials do not guarantee that the other device retains trust.").font(.footnote).foregroundStyle(.secondary) }
                 }
                 Section("Independent checks") { CheckList(checks: model.checks) }
                 if model.state.authenticated {
@@ -48,7 +57,7 @@ struct PairingView: View {
             }
             .navigationTitle("Connection test").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) {
-                Button(model.busy ? "Cancel" : "Done") { if model.busy { model.cancel() } else { dismiss() } }
+                Button(model.busy ? "Cancel" : "Done") { if model.busy { model.cancel() } else { model.finishPresentation(); dismiss() } }
             } }
         }
     }

@@ -10,7 +10,7 @@ struct RootView: View {
             NavigationStack { DiagnosticsView() }.tabItem { Label("Diagnostics", systemImage: "waveform.path.ecg") }
         }
         .tint(.cyan)
-        .sheet(isPresented: $model.presentPairing) { PairingView().environmentObject(model).interactiveDismissDisabled(model.busy) }
+        .sheet(isPresented: $model.presentPairing, onDismiss: { model.finishPresentation() }) { PairingView().environmentObject(model).interactiveDismissDisabled(model.busy) }
         .alert("TVPair", isPresented: Binding(get: { model.errorMessage != nil && !model.presentPairing }, set: { if !$0 { model.errorMessage = nil } })) {
             Button("OK") { model.errorMessage = nil }
         } message: { Text(model.errorMessage ?? "") }
@@ -45,7 +45,9 @@ struct HomeView: View {
                 }
                 if let error = discovery.discoveryMessage {
                     Text(error).font(.footnote).foregroundStyle(.orange)
-                    Button("Open Settings") { if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) } }
+                    if discovery.offerNetworkSettings {
+                        Button("Open Settings") { if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) } }
+                    }
                 }
                 if discovery.devices.isEmpty {
                     ContentUnavailableView(discovery.scanning ? "Listening for services" : "Find your Apple TV", systemImage: "appletv", description: Text("Use the same Wi-Fi. On Apple TV, open Settings → Remotes and Devices → Remote App and Devices. A service advertisement alone does not verify device identity."))
@@ -58,6 +60,10 @@ struct HomeView: View {
             Section("Connect directly") {
                 Button { manual = true } label: { Label("Enter IP address or hostname", systemImage: "network") }
             }
+            Section {
+                Button { model.startHosting() } label: { Label("Pair with iPhone / iPad", systemImage: "iphone.radiowaves.left.and.right") }.disabled(model.busy)
+                Text("Requires iOS 27 / iPadOS 27 on the other device. Select TVPair in its Settings → Developer → Paired Macs screen, then enter the code displayed by TVPair. A regular Remote Pairing advertisement alone cannot create new trust.").font(.footnote).foregroundStyle(.secondary)
+            } header: { Text("Device-initiated pairing") }
             Section {
                 if model.saved.isEmpty { Text("No saved pairing records").foregroundStyle(.secondary) }
                 ForEach(model.saved) { record in NavigationLink { SavedRecordView(record: record) } label: {
@@ -77,6 +83,7 @@ struct HomeView: View {
             }
             Section {
                 NavigationLink("Open-source licenses") { AttributionView() }
+                Text("TVPair • build \(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "Unavailable")").font(.caption).foregroundStyle(.secondary)
                 Text("Experimental protocol client. Physical iOS 27, tvOS 26/27 and LiveContainer compatibility remain unverified.").font(.footnote).foregroundStyle(.secondary)
             }
         }
@@ -131,11 +138,11 @@ struct ManualConnectionView: View {
                 Section("Endpoint") {
                     TextField("IP address or hostname", text: $host).textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
                     TextField("Advertised port", text: $port).keyboardType(.numberPad)
-                    Picker("Protocol", selection: $kind) { ForEach(ServiceKind.allCases, id: \.self) { Text($0.title).tag($0) } }
+                    Picker("Protocol", selection: $kind) { ForEach(ServiceKind.browsed, id: \.self) { Text($0.title).tag($0) } }
                 }
                 Text("Enter the actual service port; ports may change. IPv6 link-local addresses require an interface scope (for example fe80::1%en0). The selected protocol is a user-supplied hint until its handshake is validated.").font(.footnote).foregroundStyle(.secondary)
                 if let error { Text(error).foregroundStyle(.orange) }
-                Button(kind.supportsPairing ? "Attempt pairing" : "Test TCP connection") {
+                Button(kind.supportsNewPairing ? "Attempt Apple TV pairing" : "Test TCP connection") {
                     do { let endpoint = try ConnectionEndpoint(host: host, port: port); dismiss(); Task { @MainActor in
                         // Allow the manual sheet to dismiss before presenting the progress sheet.
                         try? await Task.sleep(for: .milliseconds(350)); model.start(endpoint: endpoint, service: kind, discovered: false)

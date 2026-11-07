@@ -80,6 +80,46 @@ struct SRPSession {
     func verify(_ proof: Data) -> Bool { PairingCrypto.equal(expectedServerProof, proof) }
 }
 
+/// Accessory/server SRP role for device-initiated iOS 27 pairing.
+struct SRPServerSession {
+    let salt: Data
+    let publicKey: Data
+    private let privateKey: BigUInt
+    private let verifier: BigUInt
+    init(pin: String, salt: Data? = nil, privateKey: Data? = nil) throws {
+        guard pin.count == 6, pin.allSatisfy({ $0.isASCII && $0.isNumber }) else { throw TVPairError.authentication }
+        let salt = try salt ?? PairingCrypto.random(16)
+        guard salt.count == 16 else { throw TVPairError.malformed("SRP server salt") }
+        self.salt = salt
+        let n = SRPSession.prime, g = BigUInt(5)
+        let x = BigUInt(PairingCrypto.hash(salt + PairingCrypto.hash(Data("Pair-Setup:\(pin)".utf8))))
+        verifier = g.power(x, modulus: n)
+        let k = BigUInt(PairingCrypto.hash(SRPSession.bytes(n) + SRPSession.padded(g)))
+        var selected: (BigUInt, Data)?
+        for _ in 0..<32 {
+            let secret = BigUInt(try privateKey ?? PairingCrypto.random(32))
+            guard secret > 0 else { throw TVPairError.authentication }
+            let publicValue = SRPSession.bytes((k * verifier + g.power(secret, modulus: n)) % n)
+            if publicValue.count == 384 { selected = (secret, publicValue); break }
+            if privateKey != nil { break }
+        }
+        guard let selected else { throw TVPairError.authentication }
+        self.privateKey = selected.0; publicKey = selected.1
+    }
+    func process(clientPublic: Data, clientProof: Data) throws -> (key: Data, proof: Data) {
+        let n = SRPSession.prime, a = BigUInt(clientPublic), b = BigUInt(publicKey)
+        guard !clientPublic.isEmpty, clientPublic.count <= 384, a > 0, a < n, clientProof.count == 64 else { throw TVPairError.authentication }
+        let u = BigUInt(PairingCrypto.hash(SRPSession.padded(a) + SRPSession.padded(b)))
+        guard u != 0 else { throw TVPairError.authentication }
+        let shared = (a * verifier.power(u, modulus: n)).power(privateKey, modulus: n)
+        let key = PairingCrypto.hash(SRPSession.bytes(shared))
+        let group = BigUInt(PairingCrypto.hash(SRPSession.bytes(n))) ^ BigUInt(PairingCrypto.hash(Data([5])))
+        let proof = PairingCrypto.hash(SRPSession.bytes(group) + SRPSession.bytes(BigUInt(PairingCrypto.hash(Data("Pair-Setup".utf8)))) + salt + SRPSession.bytes(a) + SRPSession.bytes(b) + key)
+        guard PairingCrypto.equal(clientProof, proof) else { throw TVPairError.authentication }
+        return (key, PairingCrypto.hash(SRPSession.bytes(a) + proof + key))
+    }
+}
+
 public enum TLV8 {
     public static func encode(_ entries: [(UInt8, Data)]) -> Data {
         var output = Data()

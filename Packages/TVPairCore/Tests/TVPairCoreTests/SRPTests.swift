@@ -18,6 +18,16 @@ final class SRPTests: XCTestCase {
         XCTAssertThrowsError(try SRPSession(pin: "123456", serverPublic: SRPSession.prime.serialize(), salt: Data([1])))
         XCTAssertThrowsError(try SRPSession(pin: "12345x", serverPublic: Data([1]), salt: Data([1])))
     }
+    func testResponderRoleMatchesIndependentServerVector() throws {
+        let url = try XCTUnwrap(Bundle.module.url(forResource: "srp", withExtension: "json", subdirectory: "Fixtures"))
+        let fixture = try JSONDecoder().decode([String: String].self, from: Data(contentsOf: url))
+        func data(_ key: String) throws -> Data { try XCTUnwrap(fixture[key].flatMap(Data.init(hex:))) }
+        let server = try SRPServerSession(pin: "123456", salt: data("salt"), privateKey: Data((1...128).reversed().map { UInt8($0) }))
+        XCTAssertEqual(server.publicKey, try data("serverPublic"))
+        let result = try server.process(clientPublic: data("publicKey"), clientProof: data("proof"))
+        XCTAssertEqual(result.key, try data("key")); XCTAssertEqual(result.proof, try data("serverProof"))
+        XCTAssertThrowsError(try server.process(clientPublic: data("publicKey"), clientProof: Data(repeating: 0, count: 64)))
+    }
 }
 
 private extension Data {

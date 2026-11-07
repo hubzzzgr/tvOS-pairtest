@@ -32,6 +32,7 @@ final class OperationGate<Value>: @unchecked Sendable {
 public final class TCPTransport: ByteTransport, @unchecked Sendable {
     private let connection: NWConnection
     private let queue = DispatchQueue(label: "TVPair.tcp")
+    public init(acceptedConnection: NWConnection) { connection = acceptedConnection }
 
     public init(endpoint: ConnectionEndpoint, preSharedKey: Data? = nil) {
         let parameters: NWParameters
@@ -55,7 +56,7 @@ public final class TCPTransport: ByteTransport, @unchecked Sendable {
         connection = NWConnection(host: NWEndpoint.Host(endpoint.host), port: NWEndpoint.Port(rawValue: endpoint.port)!, using: parameters)
     }
 
-    private static func safeError(_ error: NWError) -> TVPairError {
+    static func safeError(_ error: NWError) -> TVPairError {
         switch error {
         case let .posix(code): return .network("POSIX", code.rawValue)
         case let .dns(code): return .network("DNS", code)

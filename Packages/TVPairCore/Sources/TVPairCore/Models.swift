@@ -6,11 +6,12 @@ public enum TVPairError: Error, LocalizedError, Equatable {
     case network(String, Int32)
     case malformed(String), unsupported(String), rejected(Int, Int?)
     case authentication, keychain(Int32), storage, invalidRecord(String)
+    case advertisement(Int32)
 
     public var errorDescription: String? {
         switch self {
         case .invalidEndpoint: return "Enter a valid IP address or hostname and a port from 1 to 65535. IPv6 link-local addresses need a scope, such as %en0."
-        case .timeout: return "The operation timed out. Check Wi-Fi, the advertised port, and Apple TV pairing mode."
+        case .timeout: return "The operation timed out. Check Wi-Fi and the selected pairing flow, and keep TVPair and the other device's pairing screen open."
         case .closed: return "The peer closed the connection."
         case .cancelled: return "Cancelled."
         case let .network(domain, code): return "Network error (\(domain), \(code)). Check Local Network permission and Wi-Fi."
@@ -18,6 +19,7 @@ public enum TVPairError: Error, LocalizedError, Equatable {
         case let .unsupported(context): return "Unsupported: \(context)."
         case let .rejected(code, retry): return "The device rejected pairing (code \(code))." + (retry.map { " Retry after \($0) seconds." } ?? "")
         case .authentication: return "Cryptographic authentication failed. No authenticated session was accepted."
+        case let .advertisement(code): return "The pairable-host advertisement failed (DNS-SD code \(code)). Browsing other services may still work. In LiveContainer, the host must allow _remotepairing-pairable-host._tcp and Local Network access for incoming iPhone pairing."
         case let .keychain(code): return "Keychain access failed (OSStatus \(code)). LiveContainer may restrict guest Keychain access. Protected file storage is available only with your explicit consent."
         case .storage: return "Credential storage could not be read or written. Existing data was preserved."
         case let .invalidRecord(context): return "Invalid pairing record: \(context)."
@@ -68,17 +70,21 @@ public enum ServiceKind: String, Codable, CaseIterable, Sendable {
     case manualPairing = "_remotepairing-manual-pairing._tcp."
     case lockdown = "_apple-mobdev2._tcp."
     case remoteDiscovery = "_remoted._tcp."
+    case pairableHost = "_remotepairing-pairable-host._tcp."
+    public static var browsed: [ServiceKind] { [.remotePairing, .manualPairing, .lockdown, .remoteDiscovery] }
     public init?(bonjourType: String) {
         let normalized = bonjourType.hasSuffix(".") ? bonjourType : bonjourType + "."
         self.init(rawValue: normalized)
     }
     public var supportsPairing: Bool { self == .manualPairing || self == .remotePairing }
+    public var supportsNewPairing: Bool { self == .manualPairing }
     public var title: String {
         switch self {
         case .remotePairing: return "Remote Pairing"
         case .manualPairing: return "Manual Remote Pairing"
         case .lockdown: return "Lockdown advertisement"
         case .remoteDiscovery: return "Remote Service Discovery"
+        case .pairableHost: return "Pairable host"
         }
     }
 }
@@ -117,7 +123,7 @@ public struct DiscoveryState: Sendable {
 }
 
 public enum PairingStage: String, Codable, Sendable, Hashable {
-    case idle, connecting, negotiating, verifying, requestingConsent, awaitingPIN, authenticating, persisting, openingTunnel, testingServices, finished, failed, cancelled
+    case idle, advertising, awaitingPeer, connecting, negotiating, verifying, requestingConsent, awaitingPIN, displayingPIN, authenticating, persisting, openingTunnel, testingServices, finished, failed, cancelled
 }
 
 public struct PairingState: Sendable {
@@ -128,9 +134,10 @@ public struct PairingState: Sendable {
     public init() {}
     public mutating func move(to next: PairingStage) throws {
         let allowed: [PairingStage: Set<PairingStage>] = [
-            .idle: [.connecting], .connecting: [.negotiating, .finished], .negotiating: [.verifying],
+            .idle: [.connecting, .advertising], .advertising: [.awaitingPeer, .connecting], .awaitingPeer: [.connecting],
+            .connecting: [.negotiating, .finished], .negotiating: [.verifying, .requestingConsent],
             .verifying: [.requestingConsent, .persisting, .openingTunnel],
-            .requestingConsent: [.awaitingPIN, .authenticating], .awaitingPIN: [.authenticating],
+            .requestingConsent: [.awaitingPIN, .displayingPIN, .authenticating], .awaitingPIN: [.authenticating], .displayingPIN: [.authenticating],
             .authenticating: [.persisting], .persisting: [.openingTunnel, .finished],
             .openingTunnel: [.testingServices, .finished], .testingServices: [.finished]
         ]
@@ -177,6 +184,7 @@ public struct DiagnosticEvent: Identifiable, Codable, Sendable {
         switch failure {
         case let .some(.network(domain, code)) where ["POSIX", "DNS", "DNS-SD", "TLS", "Network.framework"].contains(domain): errorDomain = domain; errorCode = code
         case let .some(.keychain(code)): errorDomain = "OSStatus"; errorCode = code
+        case let .some(.advertisement(code)): errorDomain = "DNS-SD"; errorCode = code
         case let .some(.rejected(code, _)): errorDomain = "Pairing"; errorCode = Int32(exactly: code)
         default: errorDomain = nil; errorCode = nil
         }

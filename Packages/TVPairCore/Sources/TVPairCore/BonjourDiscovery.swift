@@ -10,9 +10,12 @@ public final class BonjourDiscovery: NSObject, ObservableObject, @preconcurrency
     @Published public private(set) var scanning = false
     @Published public private(set) var networkStatus = "Checking network…"
     @Published public private(set) var discoveryMessage: String?
+    @Published public private(set) var offerNetworkSettings = false
     public var onObservation: ((DiagnosticEvent) -> Void)?
     private var state = DiscoveryState()
     private var browsers: [NetServiceBrowser] = []
+    private var browserKinds: [ObjectIdentifier: ServiceKind] = [:]
+    private var health = DiscoveryHealth()
     private var services: [String: NetService] = [:]
     private let monitor = NWPathMonitor()
     private var refreshTimer: Timer?
@@ -23,7 +26,7 @@ public final class BonjourDiscovery: NSObject, ObservableObject, @preconcurrency
         monitor.pathUpdateHandler = { [weak self] path in
             Task { @MainActor in
                 guard let self else { return }
-                self.networkStatus = path.status == .satisfied ? (path.usesInterfaceType(.wifi) ? "Wi-Fi available • permission checked when scanning" : "Network available • local access unverified") : "Network unavailable"
+                self.networkStatus = path.status == .satisfied ? (path.usesInterfaceType(.wifi) ? "Wi-Fi available" : "Network available") : "Network unavailable"
                 if self.lastPath != path.status, self.scanning { self.start() }
                 self.lastPath = path.status
             }
@@ -32,10 +35,11 @@ public final class BonjourDiscovery: NSObject, ObservableObject, @preconcurrency
     }
 
     public func start() {
-        stop(); state.reset(); publish(); discoveryMessage = nil; scanning = true
-        for kind in ServiceKind.allCases {
+        stop(); state.reset(); publish(); health.begin(); publishHealth()
+        for kind in ServiceKind.browsed {
             let browser = NetServiceBrowser()
             browser.delegate = self; browsers.append(browser)
+            browserKinds[ObjectIdentifier(browser)] = kind
             browser.searchForServices(ofType: kind.rawValue, inDomain: "local.")
         }
         refreshTimer = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in
@@ -47,11 +51,15 @@ public final class BonjourDiscovery: NSObject, ObservableObject, @preconcurrency
         refreshTimer?.invalidate(); refreshTimer = nil
         for browser in browsers { browser.delegate = nil; browser.stop() }
         for service in services.values { service.delegate = nil; service.stopMonitoring(); service.stop() }
-        browsers.removeAll(); services.removeAll(); scanning = false
+        browsers.removeAll(); browserKinds.removeAll(); services.removeAll(); health.stop(); publishHealth()
     }
 
     private func key(_ service: NetService) -> String { "\(service.name)|\(service.type)|\(service.domain)" }
     private func publish() { devices = state.devices.values.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending } }
+    private func publishHealth() {
+        scanning = health.isScanning; discoveryMessage = health.message; offerNetworkSettings = health.offerSettings
+        if !scanning { refreshTimer?.invalidate(); refreshTimer = nil }
+    }
     private func refreshEndpoints() {
         // New resolvers avoid retaining old A/AAAA results across DHCP changes.
         for (id, old) in Array(services) {
@@ -62,7 +70,8 @@ public final class BonjourDiscovery: NSObject, ObservableObject, @preconcurrency
         }
     }
     public func netServiceBrowser(_ browser: NetServiceBrowser, didFind service: NetService, moreComing: Bool) {
-        guard let kind = ServiceKind(bonjourType: service.type) else { return }
+        guard let kind = browserKinds[ObjectIdentifier(browser)], kind == ServiceKind(bonjourType: service.type) else { return }
+        health.found(kind); publishHealth()
         let id = key(service)
         state.update(AppleTVDevice(id: id, name: displayText(service.name), service: kind))
         services[id]?.stop(); services[id] = service; service.delegate = self
@@ -70,16 +79,16 @@ public final class BonjourDiscovery: NSObject, ObservableObject, @preconcurrency
         onObservation?(DiagnosticEvent(operation: .discovery, service: kind, result: .passed, message: "A service was observed. Its device identity has not been authenticated."))
     }
     public func netServiceBrowser(_ browser: NetServiceBrowser, didRemove service: NetService, moreComing: Bool) {
+        guard browserKinds[ObjectIdentifier(browser)] != nil else { return }
         let id = key(service)
         services[id]?.delegate = nil; services[id]?.stop(); services[id]?.stopMonitoring()
         services.removeValue(forKey: id); state.remove(id: id); publish()
     }
     public func netServiceBrowser(_ browser: NetServiceBrowser, didNotSearch errorDict: [String: NSNumber]) {
-        let code = errorDict[NetService.errorCode]?.intValue ?? 0
-        discoveryMessage = code == -72008
-            ? "Local Network access is blocked or required Bonjour declarations are unavailable. Enable access in Settings → Privacy & Security → Local Network for TVPair, or for the LiveContainer host. The host must also expose the required service declarations. Then restart scanning."
-            : "Bonjour could not search (DNS-SD code \(code)). Check Local Network permission, Wi-Fi, and multicast isolation."
-        onObservation?(DiagnosticEvent(operation: .discovery, service: .remotePairing, result: .failed, message: "DNS-SD search failed (code \(code))."))
+        guard let kind = browserKinds[ObjectIdentifier(browser)] else { return }
+        let code = errorDict[NetService.errorCode]?.int32Value ?? 0
+        health.failed(kind, code: code); publishHealth()
+        onObservation?(DiagnosticEvent(operation: .discovery, service: kind, result: .failed, message: "The \(kind.title) Bonjour search stopped. Other service searches are independent.", failure: .network("DNS-SD", code)))
     }
     public func netServiceDidResolveAddress(_ sender: NetService) { update(sender) }
     public func netService(_ sender: NetService, didUpdateTXTRecord data: Data) { update(sender) }

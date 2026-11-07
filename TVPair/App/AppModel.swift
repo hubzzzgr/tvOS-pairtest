@@ -17,6 +17,9 @@ final class AppModel: ObservableObject {
     @Published var fileStorage = UserDefaults.standard.bool(forKey: "TVPair.protectedFileStorage")
     @Published var pin = ""
     @Published var information = DeviceInformation()
+    @Published private(set) var hostPIN: String?
+    @Published private(set) var hosting = false
+    private var hostListener: PairableHostListener?
     @Published var lastSavedID: UUID?
     private var operation: Task<Void, Never>?
     private var activeTransport: (any ByteTransport)?
@@ -30,7 +33,12 @@ final class AppModel: ObservableObject {
     var stage: PairingStage { state.stage }
     var fullSuccess: Bool { state.completeSuccess && checks[.services] == .passed && checks[.information] == .passed }
     var summary: String {
-        if busy { return stage == .awaitingPIN ? "Enter the Apple TV code" : "Testing the connection" }
+        if busy {
+            if stage == .awaitingPIN { return "Enter the Apple TV code" }
+            if stage == .displayingPIN { return "Enter this code on the other device" }
+            if stage == .advertising || stage == .awaitingPeer { return "Waiting for the other iPhone" }
+            return "Testing the connection"
+        }
         if fullSuccess { return "Developer connection verified" }
         if state.authenticated { return state.trustedTunnel ? "Authenticated tunnel verified" : "Pairing authenticated • tunnel unverified" }
         if stage == .cancelled { return "Connection cancelled" }
@@ -78,6 +86,7 @@ final class AppModel: ObservableObject {
     }
     func start(endpoint: ConnectionEndpoint, service: ServiceKind, discovered: Bool, recordID: UUID? = nil) {
         guard !busy else { return }
+        finishPresentation()
         busy = true; presentPairing = true; self.service = service; checks = [:]; state = PairingState()
         information = DeviceInformation(); errorMessage = nil; lastSavedID = nil; pin = ""; started = Date(); stageStart = [:]; activeCheck = nil
         log(.discovery, discovered ? .passed : .blocked, discovered ? "Selected a currently discovered service." : "Manual endpoint; Bonjour discovery was bypassed.")
@@ -93,12 +102,12 @@ final class AppModel: ObservableObject {
             }
             do {
                 let transport = TCPTransport(endpoint: endpoint); self.activeTransport = transport
-                if !service.supportsPairing {
+                if !service.supportsPairing || (recordID == nil && !service.supportsNewPairing) {
                     self.report(.connecting, .tcp, .running, "Testing TCP only for this service type.")
                     try await transport.connect(timeout: 10)
                     self.log(.resolution, .passed, "Endpoint resolved as part of the TCP connection.")
                     self.log(.tcp, .passed, "TCP connected. No pairing protocol was sent to this service.")
-                    self.log(.initiation, .blocked, "Lockdown and RSD advertisements are not interchangeable with RPPairing endpoints.")
+                    self.log(.initiation, .blocked, service == .remotePairing ? "This regular Remote Pairing endpoint requires a saved record. For an iPhone or iPad, use Pair with iPhone / iPad on Devices and start pairing from the other device's Paired Macs screen (iOS 27+). Apple TV uses its separate Manual Remote Pairing service." : "Lockdown and RSD advertisements are not interchangeable with RPPairing endpoints.")
                     try self.state.move(to: .finished); self.message = "TCP test completed. Authentication was not attempted."; return
                 }
                 let record = try await recordID.mapAsync { try await self.vault.record(id: $0) }
@@ -106,7 +115,7 @@ final class AppModel: ObservableObject {
                 let reporter: PairingReporter = { [weak self] stage, check, result, message in
                     await self?.report(stage, check, result, message)
                 }
-                let authenticated = try await client.authenticate(endpoint: endpoint, existingRecord: record, requestPIN: { [weak self] in
+                let authenticated = try await client.authenticate(endpoint: endpoint, service: service, existingRecord: record, requestPIN: { [weak self] in
                     guard let self else { throw CancellationError() }
                     return try await self.waitForPIN()
                 }, report: reporter)
@@ -158,6 +167,81 @@ final class AppModel: ObservableObject {
             }
         }
     }
+    func startHosting() {
+        guard !busy else { return }
+        finishPresentation(); busy = true; hosting = true; presentPairing = true; service = .pairableHost
+        checks = [:]; state = PairingState(); information = DeviceInformation(); errorMessage = nil; lastSavedID = nil
+        pin = ""; hostPIN = nil; stageStart = [:]; activeCheck = nil
+        discovery.start()
+        operation = Task { [weak self] in
+            guard let self else { return }
+            defer {
+                self.activeTransport?.cancel(); self.activeTransport = nil; self.hostPIN = nil; self.busy = false; self.operation = nil
+                if !self.state.authenticated { self.hostListener?.stop(); self.hostListener = nil; self.hosting = false }
+                for check in DiagnosticCheck.allCases where self.checks[check] == nil || self.checks[check] == .running {
+                    self.log(check, self.stage == .cancelled ? .cancelled : .blocked, "This check did not complete in this attempt.")
+                }
+            }
+            do {
+                let listener = PairableHostListener(identity: try PairableHostIdentity())
+                self.hostListener = listener
+                self.report(.advertising, .initiation, .running, "Publishing TVPair as a pairable host for iOS 27 / iPadOS 27 device-initiated pairing.")
+                let incoming = try await listener.accept(onPublished: { [weak self] in await self?.hostWasPublished() })
+                // The listener retains this control channel until the user dismisses
+                // the result, because iOS Wi-Fi onboarding can be session-limited.
+                let responder = PairableHostSession(transport: incoming, identity: listener.identity)
+                let reporter: PairingReporter = { [weak self] stage, check, result, text in await self?.report(stage, check, result, text) }
+                let record = try await responder.accept(displayPIN: { [weak self] code in await self?.showHostPIN(code) }, report: reporter)
+                try Task.checkCancellation(); try self.state.acceptAuthentication()
+                self.report(.persisting, .persistence, .running, "Saving the authenticated device-initiated pairing record.")
+                do {
+                    self.saved = try await self.vault.save(record); self.lastSavedID = record.id
+                    self.log(.persistence, .passed, "Authenticated credentials were saved. Device-side Wi-Fi trust may be limited to the active onboarding session.")
+                } catch {
+                    self.pendingRecord = record; self.storageError = TVPairError.safe(error).localizedDescription
+                    self.log(.persistence, .failed, "Credentials remain in memory for an explicit storage retry.", failure: TVPairError.safe(error))
+                }
+                self.report(.openingTunnel, .tunnel, .running, "Looking for the regular endpoint belonging to the authenticated device.")
+                var endpoint: ConnectionEndpoint?
+                for _ in 0..<24 {
+                    endpoint = self.discovery.devices.first { $0.service == .remotePairing && $0.endpoint != nil && AdvertisementIdentity.matches(record: record, identifier: $0.advertisedIdentifier, authTag: $0.authenticationTag) }?.endpoint
+                    if endpoint != nil { break }
+                    try await Task.sleep(for: .milliseconds(250))
+                }
+                guard let endpoint else { throw TVPairError.unsupported("pairing authenticated, but no regular Remote Pairing advertisement matched the device's identity key. Keep the other device's pairing screen open, rescan, and reconnect with its saved record") }
+                self.log(.discovery, .passed, "Discovered a regular service whose authentication tag matches the paired device.")
+                let outgoing = TCPTransport(endpoint: endpoint); self.activeTransport = outgoing
+                let client = RemotePairingClient(transport: outgoing)
+                let verified = try await client.authenticate(endpoint: endpoint, service: .remotePairing, existingRecord: record, requestPIN: { throw TVPairError.authentication }, report: { [weak self] _, check, result, text in await self?.report(.openingTunnel, check, result, text) })
+                if self.pendingRecord?.id == verified.id { self.pendingRecord = verified }
+                else {
+                    do { self.saved = try await self.vault.save(verified) }
+                    catch { self.pendingRecord = verified; self.storageError = TVPairError.safe(error).localizedDescription }
+                }
+                let tunnel = try await TrustedTunnel.establish(endpoint: endpoint, session: client)
+                self.activeTransport = tunnel.transport
+                try self.state.acceptTunnel(); self.log(.tunnel, .passed, "The authenticated TLS-PSK connection completed CDTunnel negotiation.")
+                self.information = try await DeveloperServiceClient.inspect(tunnel: tunnel, hostIdentifier: verified.hostIdentifier, report: reporter, updateInformation: { [weak self] info in await self?.receiveInformation(info) })
+                try self.state.move(to: .finished)
+                self.message = self.fullSuccess ? "Device-initiated pairing and the developer-service request succeeded." : "Device-initiated authentication completed. Review the remaining independent checks."
+            } catch {
+                let safe = TVPairError.safe(error), cancelled = safe == .cancelled || Task.isCancelled
+                let failed = self.activeCheck ?? (self.state.authenticated ? .tunnel : .authentication)
+                try? self.state.move(to: cancelled ? .cancelled : .failed)
+                self.errorMessage = cancelled ? nil : safe.localizedDescription; self.message = cancelled ? "The incoming pairing attempt was cancelled." : safe.localizedDescription
+                self.log(failed, cancelled ? .cancelled : .failed, self.message, failure: safe)
+            }
+        }
+    }
+    private func hostWasPublished() {
+        guard busy, state.stage == .advertising else { return }
+        report(.awaitingPeer, .initiation, .running, "TVPair is advertised. On the other iPhone or iPad (iOS 27+), open Settings → Developer → Paired Macs, select TVPair, then enter the code that appears here. Developer Mode alone is insufficient.")
+    }
+    private func showHostPIN(_ code: String?) { hostPIN = code }
+    func finishPresentation() {
+        guard !busy else { return }
+        hostListener?.stop(); hostListener = nil; hosting = false; hostPIN = nil
+    }
     private func receiveInformation(_ value: DeviceInformation) { information = value }
     private func waitForPIN() async throws -> String {
         try await withTaskCancellationHandler {
@@ -177,7 +261,7 @@ final class AppModel: ObservableObject {
         guard pin.count == 6, pin.allSatisfy({ $0.isASCII && $0.isNumber }) else { return }
         let code = pin; pin = ""; pinContinuation?.resume(returning: code); pinContinuation = nil; pinRequestID = nil
     }
-    func cancel() { operation?.cancel(); activeTransport?.cancel(); cancelPIN() }
+    func cancel() { operation?.cancel(); activeTransport?.cancel(); hostListener?.stop(); hostPIN = nil; cancelPIN() }
     func importRecord(_ url: URL) async {
         guard !busy else { return }
         let scoped = url.startAccessingSecurityScopedResource(); defer { if scoped { url.stopAccessingSecurityScopedResource() } }

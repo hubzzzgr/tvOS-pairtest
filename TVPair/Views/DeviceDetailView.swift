@@ -27,7 +27,7 @@ struct DeviceDetailView: View {
                 Section {
                     Button {
                         if let endpoint = device.endpoint { model.start(endpoint: endpoint, service: device.service, discovered: true) }
-                    } label: { Label(device.service.supportsPairing ? "Pair with this device" : "Test TCP connection", systemImage: "link") }
+                    } label: { Label(device.service.supportsNewPairing ? "Pair with this Apple TV" : "Test TCP connection", systemImage: "link") }
                     .disabled(device.endpoint == nil || model.busy)
                     if device.service.supportsPairing && !model.saved.isEmpty {
                         Menu {
@@ -36,7 +36,7 @@ struct DeviceDetailView: View {
                             } }
                         } label: { Label("Reconnect with saved record", systemImage: "key.horizontal") }.disabled(device.endpoint == nil || model.busy)
                     }
-                } footer: { Text("Pairing and tunneling can use different advertisements. After PIN pairing on a manual endpoint, select the regular Remote Pairing service and reconnect with the saved record if tunnel creation is rejected.") }
+                } footer: { Text(device.service == .remotePairing ? "This regular endpoint is for an existing pairing record. For a new iPhone/iPad pairing, use Pair with iPhone / iPad on Devices (iOS 27+). For Apple TV, open Remote App and Devices and select its separate Manual Remote Pairing service." : "Apple TV manual pairing displays a code on the TV. The regular Remote Pairing endpoint is used afterward with the saved record.") }
             } else {
                 ContentUnavailableView("Service no longer available", systemImage: "wifi.slash", description: Text("Return to Devices and wait for a current advertisement. Start scanning again if it was stopped."))
             }
