@@ -18,6 +18,16 @@ The user supplied screenshots from LiveContainer while testing another iPhone. T
 
 Build 2 tracks browser failures per service, suppresses blanket permission warnings after successful discovery, distinguishes regular/saved-record endpoints from Apple TV manual setup, and adds explicit device-initiated iOS 27/iPadOS 27 onboarding. Its listener advertisement can still be blocked by LiveContainer's host declarations; successful browsing of a different service does not establish publishing permission. The new onboarding implementation remains physically unvalidated until a user repeats the test with build 2.
 
+## Recorded build-3 CI evidence — 2026-11-07
+
+[CI run 42345217207](https://github.com/hubzzzgr/tvOS-pairtest/actions/runs/42345217207) succeeded for source `d6a1093b8c346b17f4bb8ff18a2ce51ca0093eeb`:
+
+- All **45 tests** passed with zero failures. New cases cover saved-record verification/listener creation without a handshake model or any peer metadata, rejection of a bad peer signature despite missing metadata, rejection of a malformed handshake envelope, the retained AppleTV model requirement for new setup, and reconnect-report isolation from completed setup checks.
+- iOS arm64 archive, unsigned IPA packaging, simulator installation and launch passed with Xcode 16.4 / Swift 6.1.2 / iOS 18.5 SDK. The simulator screenshot was downloaded and visually reviewed.
+- Local IPA inspection confirms build **3**, minimum OS **17.0**, all five Bonjour declarations, an unsigned arm64 Mach-O, zero app extensions and bundled license notices.
+- The 515,579-byte IPA's SHA-256 matches both CI's manifest and GitHub's uploaded release digest: `f50e51b99b5fda8f06b897890ff82e72a2066d0a70697ceb7f4a471539db3a9c`.
+- [Public prerelease and direct download](https://github.com/hubzzzgr/tvOS-pairtest/releases/tag/build-3) target the tested source revision. Successful physical saved-record verification, trusted tunnel establishment and developer-service access remain unverified.
+
 ## Recorded build-2 CI evidence — 2026-11-07
 
 [CI run 42342005534](https://github.com/hubzzzgr/tvOS-pairtest/actions/runs/42342005534) succeeded for source `e91ab7618bc6dc713399264c92152ef3404c95a4`:

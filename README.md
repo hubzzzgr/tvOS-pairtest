@@ -6,9 +6,9 @@ Native SwiftUI iOS app for testing whether an ordinary iPhone app can discover, 
 
 The main unproven transport boundary is iOS support for the reference protocol's TLS 1.2 PSK cipher suites. Apple's typed cipher enum does not expose them; this experiment configures their registered identifiers through the older public numeric API and checks the actual negotiated cipher. Runtime rejection is reported as a failed tunnel test. A functioning PIN-pairing path does not by itself resolve that boundary.
 
-**Latest download: [TVPair build 2 — unsigned IPA](https://github.com/hubzzzgr/tvOS-pairtest/releases/download/build-2/TVPair-unsigned.ipa).** [Release notes and checksum](https://github.com/hubzzzgr/tvOS-pairtest/releases/tag/build-2). [CI run 42342005534](https://github.com/hubzzzgr/tvOS-pairtest/actions/runs/42342005534) passed all 39 tests, archived iOS arm64, packaged the unsigned IPA, and launched the app in an iOS 18.5 iPhone simulator. The packaged build number and all five Bonjour declarations were verified. This is an experimental prerelease; the new iPhone onboarding flow still needs a physical LiveContainer retest. CI artifacts expire after 14 days; the prerelease provides a direct download.
+**Latest download: [TVPair build 3 — unsigned IPA](https://github.com/hubzzzgr/tvOS-pairtest/releases/download/build-3/TVPair-unsigned.ipa).** [Release notes and checksum](https://github.com/hubzzzgr/tvOS-pairtest/releases/tag/build-3). [CI run 42345217207](https://github.com/hubzzzgr/tvOS-pairtest/actions/runs/42345217207) passed all 45 tests, archived iOS arm64, packaged the unsigned IPA, and launched the app in an iOS 18.5 iPhone simulator. The packaged build number and all five Bonjour declarations were verified. This is an experimental prerelease; the saved-record handshake correction still needs a physical LiveContainer retest. CI artifacts expire after 14 days; the prerelease provides a direct download.
 
-## Pair with another iPhone or iPad (build 2)
+## Pair with another iPhone or iPad (build 2 and later)
 
 Developer Mode and a regular `_remotepairing._tcp` advertisement do **not** establish new trust. That endpoint is used with an existing record. Attempting Apple's TV PIN flow against it can end with the peer closing before a handshake, as seen in the initial LiveContainer test report.
 
@@ -19,6 +19,8 @@ For iOS 27 / iPadOS 27 targets:
 3. After the device requests setup, TVPair displays a six-digit code. Enter it **on the other device**. TVPair does not ask you to type that code locally.
 4. Authentication checks the SRP client proof and signed device identity. Only then is a record saved. TVPair looks for that device's regular advertisement by its identity tag, verifies the peer again, and separately tests the trusted tunnel and developer service.
 5. Keep the target pairing screen and TVPair's result open while testing. The reference iPhone onboarding path may retain trust only for the active session; saving a record does not guarantee persistent device-side trust after either side restarts.
+
+Build 3 allows saved-record verification without descriptive handshake metadata while still requiring pinned identity/signature verification. A failed follow-up reconnect is reported under the tunnel check, preserving successful onboarding results. Use **Retry saved-record connection** in that result when offered to retry without closing the onboarding channel. A TCP-only result now says **TCP connection succeeded** and marks authentication/tunnel checks **Not attempted**.
 
 This flow follows [idevice's responder implementation](https://github.com/jkcoxson/idevice/blob/89702099f4d7552f704f93b4526756abda319ceb/idevice/src/remote_pairing/responder.rs) and [idevice_pair's documented iPhone Wi-Fi workflow](https://github.com/jkcoxson/idevice_pair#over-wi-fi-with-iphone-or-ipad). iOS 26 and earlier do not gain that onboarding UI simply by enabling Developer Mode. Apple TV continues to use its separate manual-pairing service and TV-displayed code.
 
