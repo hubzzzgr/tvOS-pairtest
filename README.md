@@ -6,7 +6,7 @@ Native SwiftUI iOS app for testing whether an ordinary iPhone app can discover, 
 
 The main unproven transport boundary is iOS support for the reference protocol's TLS 1.2 PSK cipher suites. Apple's typed cipher enum does not expose them; this experiment configures their registered identifiers through the older public numeric API and checks the actual negotiated cipher. Runtime rejection is reported as a failed tunnel test. A functioning PIN-pairing path does not by itself resolve that boundary.
 
-**Previous baseline:** [CI run 42282294917](https://github.com/hubzzzgr/tvOS-pairtest/actions/runs/42282294917) passed all 29 original tests, archived iOS arm64, packaged the unsigned IPA, and launched the app in an iOS 18.5 iPhone simulator. This is build 1 and does not contain the iPhone onboarding or discovery corrections below. Use a successful build-2 workflow artifact for those fixes. Artifacts expire after 14 days; re-run the workflow to regenerate them.
+**Latest download: [TVPair build 2 — unsigned IPA](https://github.com/hubzzzgr/tvOS-pairtest/releases/download/build-2/TVPair-unsigned.ipa).** [Release notes and checksum](https://github.com/hubzzzgr/tvOS-pairtest/releases/tag/build-2). [CI run 42342005534](https://github.com/hubzzzgr/tvOS-pairtest/actions/runs/42342005534) passed all 39 tests, archived iOS arm64, packaged the unsigned IPA, and launched the app in an iOS 18.5 iPhone simulator. The packaged build number and all five Bonjour declarations were verified. This is an experimental prerelease; the new iPhone onboarding flow still needs a physical LiveContainer retest. CI artifacts expire after 14 days; the prerelease provides a direct download.
 
 ## Pair with another iPhone or iPad (build 2)
 

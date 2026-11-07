@@ -10,6 +10,17 @@ The user supplied screenshots from LiveContainer while testing another iPhone. T
 
 Build 2 tracks browser failures per service, suppresses blanket permission warnings after successful discovery, distinguishes regular/saved-record endpoints from Apple TV manual setup, and adds explicit device-initiated iOS 27/iPadOS 27 onboarding. Its listener advertisement can still be blocked by LiveContainer's host declarations; successful browsing of a different service does not establish publishing permission. The new onboarding implementation remains physically unvalidated until a user repeats the test with build 2.
 
+## Recorded build-2 CI evidence — 2026-11-07
+
+[CI run 42342005534](https://github.com/hubzzzgr/tvOS-pairtest/actions/runs/42342005534) succeeded for source `e91ab7618bc6dc713399264c92152ef3404c95a4`:
+
+- All **39 tests** passed, including reverse-role device-initiated setup, rejection of bad client proofs and peer signatures, the independent server SRP vector, incoming pairing state transitions, regular-endpoint bootstrap gating, compatible version ranges, and the successful-discovery/failed-browser regression.
+- iOS arm64 archive, unsigned IPA packaging, simulator installation and launch passed with Xcode 16.4 / Swift 6.1.2 / iOS 18.5 SDK.
+- The simulator screenshot was visually reviewed. The header reports network path availability without claiming a permission check. No fabricated devices are shown.
+- The downloaded IPA was checked as arm64 and unsigned, with zero app extensions and bundled license notices. Its compiled Info.plist has build number **2**, minimum OS **17.0**, and all five Bonjour service declarations including `_remotepairing-pairable-host._tcp`.
+- SHA-256 matches CI's manifest: `4227153ea3b226c34fd2dd279656e0de696620154c0bdc1ff5022cfef7a034e8`.
+- [Public experimental prerelease and direct IPA download](https://github.com/hubzzzgr/tvOS-pairtest/releases/tag/build-2) use that source revision. These synthetic/CI results do not establish successful pairing inside the user's LiveContainer environment; a physical retest remains required.
+
 ## Recorded CI evidence — 2026-11-06
 
 [Build 42282294917](https://github.com/hubzzzgr/tvOS-pairtest/actions/runs/42282294917) completed successfully for source revision `d149ee85dbb8938eb489dd2df20c499f2aa4659f`:
@@ -51,7 +62,7 @@ The current upstream implementations document Apple TV manual pairing, but their
 ## Acceptance tracking
 
 - Implemented: native dark SwiftUI interface; user-initiated discovery; live service updates; resolved endpoints; IPv4/IPv6/manual input; actual TCP attempts; PIN challenge gating; cryptographic Pair-Setup/Pair-Verify; storage/import/delete/export; explicit protected-file fallback; independent diagnostics; cancellation/timeouts; trusted-listener/TLS/CDTunnel test; userspace RSD and developer-info attempt; unsigned CI packaging.
-- CI verified: arm64 compilation, all 29 tests, unsigned IPA artifact and simulator launch, as recorded above. Structured network/Keychain error codes survive log redaction independently of free-text messages.
+- CI verified: build 2 arm64 compilation, all 39 tests, unsigned IPA and simulator launch, as recorded above. Structured network/Keychain error codes survive log redaction independently of free-text messages.
 - Requires hardware: launch/permission behavior on iOS 27 and LiveContainer; actual Apple TV discovery; authenticated pairing; stored-record reuse; cross-tool export compatibility; TLS-PSK support; trusted tunnel; RemoteXPC developer-service response.
 - No device evidence means the primary no-VPN feasibility question remains unanswered. Failed stages are useful experimental evidence only when gathered from an actual device run.
 
