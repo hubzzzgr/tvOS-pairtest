@@ -4,6 +4,12 @@
 
 The implementation environment remains Windows. There has been no agent-operated physical iPhone or Apple TV test. User-reported LiveContainer observations are recorded separately below; the build-2 retest now shows the app reporting successful onboarding authentication and record persistence. CI verifies compilation, synthetic protocol behavior and simulator launch only. No real pairing credentials are included in this repository.
 
+## User-reported build-3 retest and build-4 transport change — 2026-11-07
+
+The next screenshots show onboarding initiation, authentication and persistence passing, followed by `Unsupported: TLS did not negotiate one of the required pre-shared-key cipher suites`. Reaching this guard implies that the outbound saved-record verification returned successfully and an authenticated listener port was received. The screenshot does not contain the negotiated numeric suite or prove a valid PSK tunnel; no developer-service success is claimed. The incoming resolution row was incorrectly left as blocked even though a later outbound connection had resolved.
+
+Build 4 replaces the system TLS experiment with a bundled OpenSSL TLS 1.2 PSK adapter, retains full Finished/cipher verification and requires CDTunnel before tunnel success. It records precise listener/TLS/CDTunnel progress with numeric OpenSSL reasons, labels initial incoming DNS lookup as not attempted, and forwards actual successful outbound resolution to that row. Physical LiveContainer/tvOS interoperability remains to be tested.
+
 ## User-reported build-2 retest and build-3 corrections — 2026-11-07
 
 The user tested all three actions against the same other iPhone from LiveContainer. The incoming onboarding result shows authentication and record persistence passing, followed by a failed outbound handshake. Selecting the saved record independently reports `Unexpected protocol response: handshake peerDeviceInfo`. A TCP-only test passes discovery, endpoint resolution and TCP. These are user-provided screenshots, not agent-observed protocol captures; the exact target OS and returned handshake fields remain unknown. They establish neither trusted tunnel nor developer-service success.

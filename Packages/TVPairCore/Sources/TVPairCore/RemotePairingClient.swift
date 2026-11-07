@@ -7,8 +7,12 @@ public typealias PairingReporter = @Sendable (PairingStage, DiagnosticCheck, Che
 /// Its intermediate successes must not overwrite the completed pairing checks
 /// or mark the tunnel passed before TLS-PSK / CDTunnel have been tested.
 public func tunnelReconnectReporter(_ report: @escaping PairingReporter) -> PairingReporter {
-    { _, check, _, text in
-        await report(.openingTunnel, .tunnel, .running, "Saved-record reconnect (\(check.rawValue.lowercased())): \(text)")
+    { _, check, result, text in
+        if check == .resolution && result == .passed {
+            await report(.openingTunnel, .resolution, .passed, text)
+        } else {
+            await report(.openingTunnel, .tunnel, .running, "Saved-record reconnect (\(check.rawValue.lowercased())): \(text)")
+        }
     }
 }
 

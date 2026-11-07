@@ -14,7 +14,9 @@ public enum TVPairError: Error, LocalizedError, Equatable {
         case .timeout: return "The operation timed out. Check Wi-Fi and the selected pairing flow, and keep TVPair and the other device's pairing screen open."
         case .closed: return "The peer closed the connection."
         case .cancelled: return "Cancelled."
-        case let .network(domain, code): return "Network error (\(domain), \(code)). Check Local Network permission and Wi-Fi."
+        case let .network(domain, code):
+            if domain == "OpenSSL" { return "The TLS 1.2 PSK tunnel failed (OpenSSL reason \(code)). Pairing credentials were not changed. See Diagnostics for the last completed tunnel step." }
+            return "Network error (\(domain), \(code)). Check Local Network permission and Wi-Fi."
         case let .malformed(context): return "Unexpected protocol response: \(context)."
         case let .unsupported(context): return "Unsupported: \(context)."
         case let .rejected(code, retry): return "The device rejected pairing (code \(code))." + (retry.map { " Retry after \($0) seconds." } ?? "")
@@ -185,7 +187,7 @@ public struct DiagnosticEvent: Identifiable, Codable, Sendable {
         id = UUID(); timestamp = Date(); self.operation = operation; self.service = service
         self.result = result; self.message = LogSanitizer.sanitize(message); self.duration = duration
         switch failure {
-        case let .some(.network(domain, code)) where ["POSIX", "DNS", "DNS-SD", "TLS", "Network.framework"].contains(domain): errorDomain = domain; errorCode = code
+        case let .some(.network(domain, code)) where ["POSIX", "DNS", "DNS-SD", "TLS", "OpenSSL", "Network.framework"].contains(domain): errorDomain = domain; errorCode = code
         case let .some(.keychain(code)): errorDomain = "OSStatus"; errorCode = code
         case let .some(.advertisement(code)): errorDomain = "DNS-SD"; errorCode = code
         case let .some(.rejected(code, _)): errorDomain = "Pairing"; errorCode = Int32(exactly: code)

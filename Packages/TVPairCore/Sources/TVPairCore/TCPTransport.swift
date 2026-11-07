@@ -1,6 +1,5 @@
 import Foundation
 import Network
-import Security
 
 public protocol ByteTransport: Sendable {
     func connect(timeout: TimeInterval) async throws
@@ -34,24 +33,8 @@ public final class TCPTransport: ByteTransport, @unchecked Sendable {
     private let queue = DispatchQueue(label: "TVPair.tcp")
     public init(acceptedConnection: NWConnection) { connection = acceptedConnection }
 
-    public init(endpoint: ConnectionEndpoint, preSharedKey: Data? = nil) {
-        let parameters: NWParameters
-        if let key = preSharedKey {
-            let tls = NWProtocolTLS.Options()
-            let options = tls.securityProtocolOptions
-            sec_protocol_options_set_min_tls_protocol_version(options, .TLSv12)
-            sec_protocol_options_set_max_tls_protocol_version(options, .TLSv12)
-            // Public Security API. Support for these legacy PSK suites on iOS is experimental.
-            // These IANA suites are absent from Apple's typed tls_ciphersuite_t enum.
-            // The older public API accepts SSLCipherSuite numeric identifiers. This
-            // configures an experiment; it does NOT establish runtime support.
-            sec_protocol_options_add_tls_ciphersuite(options, SSLCipherSuite(0x00af))
-            sec_protocol_options_add_tls_ciphersuite(options, SSLCipherSuite(0x008c))
-            let keyData = key.withUnsafeBytes { DispatchData(bytes: $0) }
-            let identity = DispatchData.empty // Empty PSK identity, as used by the reference.
-            sec_protocol_options_add_pre_shared_key(options, keyData as __DispatchData, identity as __DispatchData)
-            parameters = NWParameters(tls: tls, tcp: NWProtocolTCP.Options())
-        } else { parameters = .tcp }
+    public init(endpoint: ConnectionEndpoint) {
+        let parameters = NWParameters.tcp
         parameters.includePeerToPeer = true
         connection = NWConnection(host: NWEndpoint.Host(endpoint.host), port: NWEndpoint.Port(rawValue: endpoint.port)!, using: parameters)
     }
@@ -124,11 +107,6 @@ public final class TCPTransport: ByteTransport, @unchecked Sendable {
         return output
     }
     public func cancel() { connection.cancel() }
-    public func requireNegotiatedPSK() throws {
-        guard let metadata = connection.metadata(definition: NWProtocolTLS.definition) as? NWProtocolTLS.Metadata else { throw TVPairError.unsupported("TLS negotiation metadata is unavailable") }
-        let suite = sec_protocol_metadata_get_negotiated_tls_ciphersuite(metadata.securityProtocolMetadata).rawValue
-        guard suite == 0x00af || suite == 0x008c else { throw TVPairError.unsupported("TLS did not negotiate one of the required pre-shared-key cipher suites") }
-    }
     deinit { connection.cancel() }
 }
 

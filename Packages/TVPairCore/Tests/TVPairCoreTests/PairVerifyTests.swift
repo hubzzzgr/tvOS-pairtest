@@ -52,9 +52,13 @@ final class PairVerifyTests: XCTestCase {
         await reporter(.negotiating, .initiation, .running, "Handshake")
         await reporter(.verifying, .initiation, .passed, "Handshake received")
         await reporter(.verifying, .authentication, .passed, "Peer verified")
+        await reporter(.connecting, .resolution, .passed, "Outbound endpoint resolved")
         let values = await reports.values
-        XCTAssertEqual(values.count, 4)
-        XCTAssertTrue(values.allSatisfy { $0.0 == .openingTunnel && $0.1 == .tunnel && $0.2 == .running })
+        XCTAssertEqual(values.count, 5)
+        XCTAssertTrue(values.prefix(4).allSatisfy { $0.0 == .openingTunnel && $0.1 == .tunnel && $0.2 == .running })
+        XCTAssertEqual(values.last?.0, .openingTunnel)
+        XCTAssertEqual(values.last?.1, .resolution)
+        XCTAssertEqual(values.last?.2, .passed)
     }
     func testPinnedPeerAndHostProofsAreRequiredBeforeListenerCreation() async throws {
         let transport = VerifyPeerTransport(tamperPeerSignature: false)

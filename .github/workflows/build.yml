@@ -33,6 +33,8 @@ jobs:
           NSUnbufferedIO: "YES"
         run: |
           set -o pipefail
+          export TVPAIR_OPENSSL_CLI="$(brew --prefix openssl@3)/bin/openssl"
+          "$TVPAIR_OPENSSL_CLI" version | tee artifacts/openssl-peer.txt
           swift test --package-path Packages/TVPairCore 2>&1 | tee artifacts/tests.log
       - name: Archive iOS arm64 without signing
         if: ${{ !cancelled() }}

@@ -11,13 +11,16 @@ public struct TunnelConfiguration: Sendable {
 public struct TrustedTunnel: Sendable {
     public let transport: any ByteTransport
     public let configuration: TunnelConfiguration
-    public static func establish(endpoint: ConnectionEndpoint, session: RemotePairingClient) async throws -> TrustedTunnel {
+    public static func establish(endpoint: ConnectionEndpoint, session: RemotePairingClient, report: PairingReporter = { _,_,_,_ in }) async throws -> TrustedTunnel {
+        await report(.openingTunnel, .tunnel, .running, "Requesting the device's authenticated TCP tunnel listener.")
         let listener = try await session.createTunnelListener()
         let target = try ConnectionEndpoint(host: endpoint.host, port: String(listener.port))
-        let transport = TCPTransport(endpoint: target, preSharedKey: listener.key)
+        await report(.openingTunnel, .tunnel, .running, "The authenticated device supplied a tunnel listener. Negotiating TLS 1.2 PSK with the bundled OpenSSL engine.")
+        let transport = try PSKTLSTransport(upstream: TCPTransport(endpoint: target), preSharedKey: listener.key)
         do {
             try await transport.connect(timeout: 12)
-            try transport.requireNegotiatedPSK()
+            let cipher = await transport.negotiatedCipher ?? 0
+            await report(.openingTunnel, .tunnel, .running, String(format: "TLS 1.2 PSK Finished proofs verified; cipher 0x%04X. Testing CDTunnel.", Int(cipher)))
             try await transport.send(FramedJSON.encode(["type": "clientHandshakeRequest", "mtu": 16000], magic: "CDTunnel"), timeout: 10)
             let response = try await FramedJSON.receive(from: transport, magic: "CDTunnel")
             guard response["type"] as? String == "serverHandshakeResponse",

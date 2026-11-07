@@ -162,7 +162,7 @@ final class AppModel: ObservableObject {
                         catch { self.pendingRecord = verified; self.storageError = TVPairError.safe(error).localizedDescription }
                     }
                 }
-                let tunnel = try await TrustedTunnel.establish(endpoint: trustedEndpoint, session: trustedClient)
+                let tunnel = try await TrustedTunnel.establish(endpoint: trustedEndpoint, session: trustedClient, report: reporter)
                 self.activeTransport = tunnel.transport
                 try self.state.acceptTunnel(); self.log(.tunnel, .passed, "The authenticated TLS-PSK connection completed a valid CDTunnel handshake.")
                 self.information = try await DeveloperServiceClient.inspect(tunnel: tunnel, hostIdentifier: authenticated.hostIdentifier, report: reporter, updateInformation: { [weak self] value in await self?.receiveInformation(value) })
@@ -231,7 +231,7 @@ final class AppModel: ObservableObject {
                     do { self.saved = try await self.vault.save(verified) }
                     catch { self.pendingRecord = verified; self.storageError = TVPairError.safe(error).localizedDescription }
                 }
-                let tunnel = try await TrustedTunnel.establish(endpoint: endpoint, session: client)
+                let tunnel = try await TrustedTunnel.establish(endpoint: endpoint, session: client, report: reporter)
                 self.activeTransport = tunnel.transport
                 try self.state.acceptTunnel(); self.log(.tunnel, .passed, "The authenticated TLS-PSK connection completed CDTunnel negotiation.")
                 self.information = try await DeveloperServiceClient.inspect(tunnel: tunnel, hostIdentifier: verified.hostIdentifier, report: reporter, updateInformation: { [weak self] info in await self?.receiveInformation(info) })

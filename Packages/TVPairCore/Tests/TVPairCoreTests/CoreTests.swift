@@ -130,10 +130,12 @@ final class CoreTests: XCTestCase {
         do { let _: Int = try await withCheckedThrowingContinuation { gate.install($0); gate.finish(.success(1)) }; XCTFail("Cancellation should win") }
         catch { XCTAssertTrue(error is CancellationError) }
     }
-    func testPSKOptionsCanBeConstructedWithoutPrivateFrameworks() throws {
-        let transport = TCPTransport(endpoint: try ConnectionEndpoint(host: "127.0.0.1", port: "1234"), preSharedKey: Data(repeating: 1, count: 32))
+    func testBundledPSKEngineRejectsInvalidKeyLengths() throws {
+        let upstream = TCPTransport(endpoint: try ConnectionEndpoint(host: "127.0.0.1", port: "1234"))
+        XCTAssertThrowsError(try PSKTLSTransport(upstream: upstream, preSharedKey: Data()))
+        XCTAssertThrowsError(try PSKTLSTransport(upstream: upstream, preSharedKey: Data(repeating: 1, count: 65)))
+        let transport = try PSKTLSTransport(upstream: upstream, preSharedKey: Data(repeating: 1, count: 32))
         transport.cancel()
-        // Construction is not TLS negotiation evidence.
     }
     func testAdvertisementIdentityAgainstPublishedSipHashVectors() {
         let key = Data(0..<16)

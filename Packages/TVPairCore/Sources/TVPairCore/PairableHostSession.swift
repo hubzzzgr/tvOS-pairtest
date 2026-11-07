@@ -48,7 +48,7 @@ public actor PairableHostSession {
         await report(.connecting, .tcp, .running, "Accepting the device-initiated TCP connection.")
         try await transport.connect(timeout: 10)
         await report(.connecting, .tcp, .passed, "The other device connected to TVPair's advertised host endpoint.")
-        await report(.connecting, .resolution, .blocked, "Incoming connection; no outbound DNS lookup was required.")
+        await report(.connecting, .resolution, .notAttempted, "Incoming connection; no outbound DNS lookup was required. A later outbound reconnect tests resolution separately.")
         await report(.negotiating, .initiation, .running, "Waiting for the other device's RPPairing handshake.")
         let request = try await receive()
         guard let handshake = nested(request, "request", "_0", "handshake", "_0") as? [String: Any],
