@@ -165,7 +165,10 @@ public enum DiagnosticCheck: String, CaseIterable, Codable, Sendable {
     case services = "Developer-service availability"
     case information = "Device information retrieval"
 }
-public enum CheckResult: String, Codable, Sendable { case pending, running, passed, failed, blocked, cancelled }
+public enum CheckResult: String, Codable, Sendable {
+    case pending, running, passed, failed, blocked, cancelled
+    case notAttempted = "not attempted"
+}
 
 public struct DiagnosticEvent: Identifiable, Codable, Sendable {
     public let id: UUID

@@ -3,6 +3,59 @@ import CryptoKit
 @testable import TVPairCore
 
 final class PairVerifyTests: XCTestCase {
+    func testReconnectWithoutHandshakeModelStillVerifiesPinnedIdentityAndCreatesListener() async throws {
+        try await verifySparseHandshake(.withoutModel)
+    }
+    func testReconnectWithoutHandshakeMetadataStillVerifiesPinnedIdentityAndCreatesListener() async throws {
+        try await verifySparseHandshake(.withoutMetadata)
+    }
+    private func verifySparseHandshake(_ handshake: VerifyPeer.Handshake) async throws {
+        let transport = VerifyPeerTransport(tamperPeerSignature: false, handshake: handshake)
+        let record = await transport.record(), client = RemotePairingClient(transport: transport)
+        let verified = try await client.authenticate(endpoint: ConnectionEndpoint(host: "phone.local", port: "49152"), service: .remotePairing, existingRecord: record, requestPIN: { XCTFail("Saved-record verification must not request a code"); throw TVPairError.authentication }, report: { _,_,_,_ in })
+        XCTAssertEqual(verified.peerPublicKey, record.peerPublicKey)
+        let hostVerified = await transport.hostWasVerified(); XCTAssertTrue(hostVerified)
+        let listener = try await client.createTunnelListener(); XCTAssertEqual(listener.port, 54321)
+    }
+    func testSparseHandshakeDoesNotBypassPeerSignatureVerification() async throws {
+        let transport = VerifyPeerTransport(tamperPeerSignature: true, handshake: .withoutMetadata)
+        let record = await transport.record(), client = RemotePairingClient(transport: transport)
+        do {
+            _ = try await client.authenticate(endpoint: ConnectionEndpoint(host: "phone.local", port: "49152"), existingRecord: record, requestPIN: { throw TVPairError.authentication }, report: { _,_,_,_ in })
+            XCTFail("Missing metadata must not bypass pinned-peer authentication")
+        } catch { XCTAssertEqual(error as? TVPairError, .authentication) }
+        do { _ = try await client.createTunnelListener(); XCTFail("Unauthenticated listener request") }
+        catch { XCTAssertEqual(error as? TVPairError, .authentication) }
+    }
+    func testInvalidHandshakeEnvelopeIsRejectedBeforePairVerify() async throws {
+        let transport = VerifyPeerTransport(tamperPeerSignature: false, handshake: .invalidEnvelope)
+        let record = await transport.record(), client = RemotePairingClient(transport: transport)
+        do {
+            _ = try await client.authenticate(endpoint: ConnectionEndpoint(host: "phone.local", port: "49152"), existingRecord: record, requestPIN: { throw TVPairError.authentication }, report: { _,_,_,_ in })
+            XCTFail("An actual handshake response is still required")
+        } catch { XCTAssertEqual(error as? TVPairError, .malformed("handshake response envelope")) }
+        let hostVerified = await transport.hostWasVerified(); XCTAssertFalse(hostVerified)
+    }
+    func testNewAppleTVPairingStillRequiresAnAdvertisedAppleTVModel() async throws {
+        let transport = VerifyPeerTransport(tamperPeerSignature: false, handshake: .withoutMetadata)
+        let client = RemotePairingClient(transport: transport)
+        do {
+            _ = try await client.authenticate(endpoint: ConnectionEndpoint(host: "phone.local", port: "49152"), service: .manualPairing, requestPIN: { XCTFail("Unknown models must not request a TV code"); return "123456" }, report: { _,_,_,_ in })
+            XCTFail("The TV PIN flow must not infer a device type from a missing model")
+        } catch { guard case .some(.unsupported(_)) = error as? TVPairError else { return XCTFail("Expected unsupported TV setup") } }
+        let hostVerified = await transport.hostWasVerified(); XCTAssertFalse(hostVerified)
+    }
+    func testTunnelReconnectReportsCannotOverwriteCompletedPairingChecks() async throws {
+        let reports = ReconnectReports()
+        let reporter = tunnelReconnectReporter { stage, check, result, _ in await reports.append(stage, check, result) }
+        await reporter(.connecting, .tcp, .passed, "TCP connected")
+        await reporter(.negotiating, .initiation, .running, "Handshake")
+        await reporter(.verifying, .initiation, .passed, "Handshake received")
+        await reporter(.verifying, .authentication, .passed, "Peer verified")
+        let values = await reports.values
+        XCTAssertEqual(values.count, 4)
+        XCTAssertTrue(values.allSatisfy { $0.0 == .openingTunnel && $0.1 == .tunnel && $0.2 == .running })
+    }
     func testPinnedPeerAndHostProofsAreRequiredBeforeListenerCreation() async throws {
         let transport = VerifyPeerTransport(tamperPeerSignature: false)
         let record = await transport.record()
@@ -29,7 +82,7 @@ final class PairVerifyTests: XCTestCase {
 
 private final class VerifyPeerTransport: ByteTransport, @unchecked Sendable {
     let peer: VerifyPeer
-    init(tamperPeerSignature: Bool) { peer = VerifyPeer(tamper: tamperPeerSignature) }
+    init(tamperPeerSignature: Bool, handshake: VerifyPeer.Handshake = .full) { peer = VerifyPeer(tamper: tamperPeerSignature, handshake: handshake) }
     func record() async -> PairingRecord { await peer.record }
     func hostWasVerified() async -> Bool { await peer.hostVerified }
     func connect(timeout: TimeInterval) async throws { try Task.checkCancellation() }
@@ -39,6 +92,8 @@ private final class VerifyPeerTransport: ByteTransport, @unchecked Sendable {
 }
 
 private actor VerifyPeer {
+    enum Handshake: Sendable { case full, withoutModel, withoutMetadata, invalidEnvelope }
+    let handshake: Handshake
     let tamper: Bool
     let hostKey = Curve25519.Signing.PrivateKey()
     let peerKey = Curve25519.Signing.PrivateKey()
@@ -49,7 +104,7 @@ private actor VerifyPeer {
     var shared: Data?
     var hostEphemeral = Data()
     var hostVerified = false
-    init(tamper: Bool) { self.tamper = tamper }
+    init(tamper: Bool, handshake: Handshake) { self.tamper = tamper; self.handshake = handshake }
     var record: PairingRecord {
         PairingRecord(deviceName: "Synthetic peer", deviceIdentifier: "test-only", productType: "AppleTV-test", hostIdentifier: hostID, privateKey: hostKey.rawRepresentation, publicKey: hostKey.publicKey.rawRepresentation, peerPublicKey: peerKey.publicKey.rawRepresentation, peerIdentifier: peerID, alternateIRK: nil, endpoint: nil)
     }
@@ -68,7 +123,14 @@ private actor VerifyPeer {
               let envelope = try JSONSerialization.jsonObject(with: data.dropFirst(11)) as? [String: Any] else { throw TVPairError.malformed("test peer frame") }
         if let plain = nested(envelope, "message", "plain", "_0") as? [String: Any] {
             if nested(plain, "request", "_0", "handshake") != nil {
-                try enqueue(["response": ["_1": ["handshake": ["_0": ["wireProtocolVersion": 19, "peerDeviceInfo": ["model": "AppleTV-test", "identifier": "test-only"]]]]]]); return
+                var info: [String: Any] = ["wireProtocolVersion": 26, "minimumSupportedWireProtocolVersion": 8]
+                switch handshake {
+                case .full: info["peerDeviceInfo"] = ["model": "AppleTV-test", "identifier": "test-only"]
+                case .withoutModel: info["peerDeviceInfo"] = ["identifier": "test-only"]
+                case .withoutMetadata: break
+                case .invalidEnvelope: try enqueue(["event": [:]]); return
+                }
+                try enqueue(["response": ["_1": ["handshake": ["_0": info]]]]); return
             }
             guard let encoded = nested(plain, "event", "_0", "pairingData", "_0", "data") as? String, let bytes = Data(base64Encoded: encoded) else { throw TVPairError.malformed("test peer TLV") }
             let values = try TLV8.decode(bytes)
@@ -97,4 +159,9 @@ private actor VerifyPeer {
             buffer += try FramedJSON.encode(["message": ["streamEncrypted": ["_0": encrypted.base64EncodedString()]], "originatedBy": "device", "sequenceNumber": 3])
         }
     }
+}
+
+private actor ReconnectReports {
+    var values: [(PairingStage, DiagnosticCheck, CheckResult)] = []
+    func append(_ stage: PairingStage, _ check: DiagnosticCheck, _ result: CheckResult) { values.append((stage, check, result)) }
 }

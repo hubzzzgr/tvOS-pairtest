@@ -2,7 +2,15 @@
 
 ## Evidence boundaries
 
-The implementation environment remains Windows. There has been no agent-operated physical iPhone or Apple TV test. User-reported LiveContainer observations are recorded separately below; they demonstrate discovery/TCP connectivity, not authentication. CI verifies compilation, synthetic protocol behavior and simulator launch only. No real pairing credentials are included in this repository.
+The implementation environment remains Windows. There has been no agent-operated physical iPhone or Apple TV test. User-reported LiveContainer observations are recorded separately below; the build-2 retest now shows the app reporting successful onboarding authentication and record persistence. CI verifies compilation, synthetic protocol behavior and simulator launch only. No real pairing credentials are included in this repository.
+
+## User-reported build-2 retest and build-3 corrections — 2026-11-07
+
+The user tested all three actions against the same other iPhone from LiveContainer. The incoming onboarding result shows authentication and record persistence passing, followed by a failed outbound handshake. Selecting the saved record independently reports `Unexpected protocol response: handshake peerDeviceInfo`. A TCP-only test passes discovery, endpoint resolution and TCP. These are user-provided screenshots, not agent-observed protocol captures; the exact target OS and returned handshake fields remain unknown. They establish neither trusted tunnel nor developer-service success.
+
+Inspection found that outbound verification unnecessarily required an unverified handshake model even when a saved, pinned peer identity was available. Build 3 requires the handshake response envelope, but permits absent descriptive peer metadata during saved-record Pair-Verify. The pinned peer key, identifier, signature and encrypted proofs remain required. New Apple TV PIN setup still requires an AppleTV model. A malformed response envelope now has its own specific error instead of being conflated with missing metadata.
+
+The follow-up reconnect after initial authentication now reports under the tunnel check; it cannot overwrite completed pairing initiation/authentication results or mark the tunnel passed. TCP-only results say **TCP connection succeeded** and label excluded checks **Not attempted**. The incoming result offers **Retry saved-record connection** when a record and matching endpoint are available, retaining the onboarding channel across repeated retries. Dismissing the result still ends that session. Build-3 physical reconnect/tunnel behavior awaits retest.
 
 ## User-reported LiveContainer evidence and build-2 corrections — 2026-11-07
 
@@ -39,7 +47,7 @@ This evidence does not prove iOS 27 runtime compatibility, LiveContainer guest b
 | iOS 17 deployment target / arm64 | Archive passed using iOS 18.5 SDK; iOS 18.5 simulator launch passed | Physical test outstanding |
 | iOS 27 standalone | No physical test | Unknown |
 | iOS 27 in LiveContainer | No physical test; host permissions/Keychain unverified | Unknown |
-| User's two-iPhone LiveContainer setup (target OS not reported) | Build-1 screenshots show discovery, resolution and TCP passing | Peer closed before handshake; build-2 onboarding awaits retest |
+| User's two-iPhone LiveContainer setup (target OS not reported) | Screenshots show discovery, resolution and TCP passing | Build-2 onboarding authentication/persistence reported passed; subsequent saved-record handshake failed; no tunnel/developer result |
 | tvOS 26 | Current reference protocol path inspected; no explicit local compatibility proof | Unknown |
 | tvOS 27 | Current reference protocol path inspected; no explicit local compatibility proof | Unknown |
 

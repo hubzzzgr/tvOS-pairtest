@@ -3,6 +3,15 @@ import CryptoKit
 
 public typealias PairingReporter = @Sendable (PairingStage, DiagnosticCheck, CheckResult, String) async -> Void
 
+/// A fresh Pair-Verify is a prerequisite of the tunnel test after Pair-Setup.
+/// Its intermediate successes must not overwrite the completed pairing checks
+/// or mark the tunnel passed before TLS-PSK / CDTunnel have been tested.
+public func tunnelReconnectReporter(_ report: @escaping PairingReporter) -> PairingReporter {
+    { _, check, _, text in
+        await report(.openingTunnel, .tunnel, .running, "Saved-record reconnect (\(check.rawValue.lowercased())): \(text)")
+    }
+}
+
 /// Native experimental RPPairing control plane; no lockdown, AirPlay, or private frameworks.
 /// Protocol envelopes and stages were checked against MIT-licensed idevice (see THIRD_PARTY_NOTICES).
 public actor RemotePairingClient {
@@ -10,7 +19,6 @@ public actor RemotePairingClient {
     private var sequence: UInt64 = 0
     private var encryptedSequence: UInt64 = 0
     private var sessionKey: Data?
-    private var peerInfo: [String: Any] = [:]
     private var authenticated = false
     public init(transport: any ByteTransport) { self.transport = transport }
     public nonisolated func cancel() { transport.cancel() }
@@ -53,12 +61,10 @@ public actor RemotePairingClient {
         let handshake: [String: Any]
         do { handshake = try await receivePlain() }
         catch TVPairError.closed { throw TVPairError.unsupported("the peer closed before the RPPairing handshake. Check the selected service and matching record; Developer Mode alone does not authorize a trusted endpoint") }
-        guard let info = nested(handshake, "response", "_1", "handshake", "_0") as? [String: Any],
-              let peer = info["peerDeviceInfo"] as? [String: Any], let model = peer["model"] as? String else { throw TVPairError.malformed("handshake peerDeviceInfo") }
+        guard let info = nested(handshake, "response", "_1", "handshake", "_0") as? [String: Any] else { throw TVPairError.malformed("handshake response envelope") }
         if let version = info["wireProtocolVersion"] as? Int {
             try PairingWireVersion.validatePeer(maximum: version, minimum: info["minimumSupportedWireProtocolVersion"] as? Int ?? 8)
         }
-        peerInfo = peer
         await report(.verifying, .initiation, .passed, "RPPairing handshake received. Peer metadata remains unverified.")
 
         if var record = existingRecord {
@@ -70,6 +76,13 @@ public actor RemotePairingClient {
             record.lastEndpoint = endpoint; authenticated = true
             await report(.verifying, .authentication, .passed, "Pair-Verify completed and the peer signature matched the saved identity.")
             return record
+        }
+
+        // Regular endpoints can omit descriptive metadata before authentication.
+        // Saved-record verification above uses the pinned signing key and ID,
+        // never the unverified model. Only the new Apple TV PIN flow needs it.
+        guard let model = nested(info, "peerDeviceInfo", "model") as? String, model.hasPrefix("AppleTV") else {
+            throw TVPairError.unsupported("the peer did not identify as an Apple TV; use device-initiated pairing for an iPhone or iPad")
         }
 
         // The initial verify attempt is part of the observed protocol, even for a new host.
@@ -85,7 +98,6 @@ public actor RemotePairingClient {
         try TLV8.check(challenge, state: 2)
         let serverPublic = try TLV8.require(challenge, 3), salt = try TLV8.require(challenge, 2)
         guard serverPublic.count <= 384, serverPublic.contains(where: { $0 != 0 }), salt.count <= 64 else { throw TVPairError.malformed("manual SRP challenge") }
-        guard model.hasPrefix("AppleTV") else { throw TVPairError.unsupported("the peer did not identify as an Apple TV; this client does not infer a PIN flow for other models") }
         await report(.awaitingPIN, .authentication, .running, "The device supplied a manual pairing challenge. Enter the code displayed on Apple TV.")
         let pin = try await requestPIN()
         try Task.checkCancellation()

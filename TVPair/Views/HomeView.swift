@@ -84,7 +84,7 @@ struct HomeView: View {
             Section {
                 NavigationLink("Open-source licenses") { AttributionView() }
                 Text("TVPair • build \(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "Unavailable")").font(.caption).foregroundStyle(.secondary)
-                Text("Experimental protocol client. Physical iOS 27, tvOS 26/27 and LiveContainer compatibility remain unverified.").font(.footnote).foregroundStyle(.secondary)
+                Text("Experimental protocol client. Trusted tunnels and developer-service access still require physical validation on each target and LiveContainer setup.").font(.footnote).foregroundStyle(.secondary)
             }
         }
         .navigationTitle("Devices").navigationBarTitleDisplayMode(.inline)

@@ -12,7 +12,7 @@ struct PairingView: View {
                     VStack(spacing: 18) {
                         ZStack {
                             Circle().fill(.cyan.opacity(0.1)).frame(width: 112, height: 112)
-                            Image(systemName: model.fullSuccess ? "checkmark.shield.fill" : "appletv.fill").font(.system(size: 47)).foregroundStyle(model.fullSuccess ? .green : .cyan)
+                            Image(systemName: model.fullSuccess ? "checkmark.shield.fill" : model.tcpOnly ? "network" : "appletv.fill").font(.system(size: 47)).foregroundStyle(model.fullSuccess || (model.tcpOnly && model.stage == .finished) ? .green : .cyan)
                         }
                         Text(model.summary).font(.title2.bold()).multilineTextAlignment(.center)
                         Text(model.message).font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
@@ -34,7 +34,12 @@ struct PairingView: View {
                     } header: { Text("Code for the other device") }
                 }
                 if model.hosting {
-                    Section { Text("iPhone Wi-Fi onboarding may last only while this host session remains open. Closing this result stops the host; saved credentials do not guarantee that the other device retains trust.").font(.footnote).foregroundStyle(.secondary) }
+                    Section {
+                        Text("iPhone Wi-Fi onboarding may last only while this host session remains open. Closing this result stops the host; saved credentials do not guarantee that the other device retains trust.").font(.footnote).foregroundStyle(.secondary)
+                        if model.canRetryHostedConnection {
+                            Button("Retry saved-record connection") { model.retryHostedConnection() }
+                        }
+                    }
                 }
                 Section("Independent checks") { CheckList(checks: model.checks) }
                 if model.state.authenticated {
@@ -42,7 +47,7 @@ struct PairingView: View {
                         DetailRow(title: "Name", value: model.information.name)
                         DetailRow(title: "Identifier", value: model.information.identifier)
                         DetailRow(title: "Product type", value: model.information.productType)
-                        DetailRow(title: "tvOS version", value: model.information.osVersion)
+                        DetailRow(title: "OS version", value: model.information.osVersion)
                     }
                     if !model.information.developerServices.isEmpty {
                         Section("Advertised developer services") {
@@ -81,7 +86,7 @@ struct CheckList: View {
         switch result {
         case .passed: return "checkmark.circle.fill"
         case .failed: return "xmark.circle.fill"
-        case .blocked: return "minus.circle"
+        case .blocked, .notAttempted: return "minus.circle"
         case .cancelled: return "stop.circle"
         default: return "circle.dotted"
         }
