@@ -2,7 +2,7 @@
 
 Native SwiftUI iOS app for testing whether an ordinary iPhone app can discover, authenticate with, and reach Apple TV developer services over local Wi-Fi without a VPN. Includes a separate device-initiated onboarding flow for iOS 27 / iPadOS 27 test devices. Minimum app deployment target: iOS 17, arm64. No backend, extensions, private frameworks, custom entitlements, installation service, or signing service.
 
-**Status: experimental implementation; user-reported iPhone onboarding authentication and record saving succeeded in LiveContainer.** The subsequent saved-record handshake failed in build 2; build 3 corrects its strict metadata parsing and misleading check results. Trusted tunnel and developer-service access remain unproven. A successful CI build or synthetic protocol test does not establish compatibility with tvOS 26, tvOS 27, iOS 27, or LiveContainer. No physical Apple TV result has been recorded. Authentication, persistence, tunnel establishment, developer-service response, and device information are separate checks; TCP connection alone never means paired.
+**Status: experimental implementation; the user's LiveContainer retest passed iPhone onboarding and progressed through saved-record verification to the TLS tunnel check.** Trusted tunnel and developer-service access remain unproven. A successful CI build or synthetic protocol test does not establish compatibility with tvOS 26, tvOS 27, iOS 27, or LiveContainer. No physical Apple TV result has been recorded. Authentication, persistence, tunnel establishment, developer-service response, and device information are separate checks; TCP connection alone never means paired.
 
 The build-3 physical retest reached the TLS tunnel after successful onboarding and saved-record verification, then stopped at the system TLS cipher check. Build 4 replaces that path with a bundled OpenSSL 3.6.5 TLS 1.2 PSK engine over public Network.framework TCP I/O. Only the two reference PSK cipher suites are enabled; OpenSSL verifies the Finished proofs and authenticated records before CDTunnel starts. Physical tunnel and developer-service interoperability still require a retest.
 
@@ -30,7 +30,7 @@ Discovery errors are tracked per service type. If any service has been observed 
 
 ## Build and install
 
-Open `TVPair.xcodeproj` in Xcode 16.4 or newer on macOS. The checked-in project needs no project generator or CocoaPods. Its local Swift package resolves the MIT-licensed BigInt 5.7.0 dependency, with the tested revision recorded in both dependency locks. To regenerate the project after adding app Swift files: `node scripts/generate-project.mjs` (Windows or macOS).
+Open `TVPair.xcodeproj` in Xcode 16.4 or newer on macOS. The checked-in project needs no project generator or CocoaPods. Its local Swift package resolves MIT-licensed BigInt 5.7.0 and Apache-2.0 OpenSSL-Package 3.6.5000 (OpenSSL 3.6.5). Both dependency locks pin exact revisions; SwiftPM also verifies the OpenSSL XCFramework ZIP checksum. Redistribution notices are bundled in the app. To regenerate the project after adding app Swift files: `node scripts/generate-project.mjs` (Windows or macOS).
 
 GitHub Actions **Build TVPair** runs automatically on `main` and supports **Run workflow**. It resolves dependencies, runs the core tests on macOS, archives for iOS arm64 with signing disabled, creates `TVPair-unsigned.ipa`, uploads logs and the unsigned build, then attempts a simulator launch with a screenshot. Failed builds retain diagnostic logs and Xcode result bundles.
 

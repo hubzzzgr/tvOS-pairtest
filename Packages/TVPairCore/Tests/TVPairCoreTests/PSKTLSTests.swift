@@ -52,7 +52,7 @@ final class PSKTLSTests: XCTestCase {
     func testTamperedRecordNeverReturnsPlaintext() async throws {
         let server = try OpenSSLTestServer(); defer { server.stop() }
         let port = try await server.start()
-        let raw = TamperingTLSTransport(upstream: TCPTransport(endpoint: ConnectionEndpoint(host: "127.0.0.1", port: String(port))))
+        let raw = TamperingTLSTransport(upstream: TCPTransport(endpoint: try ConnectionEndpoint(host: "127.0.0.1", port: String(port))))
         let tls = try PSKTLSTransport(upstream: raw, preSharedKey: key); defer { tls.cancel() }
         try await tls.connect(timeout: 5); raw.arm()
         try await tls.send(Data("authenticated\n".utf8), timeout: 5)
