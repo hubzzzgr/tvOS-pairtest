@@ -19,6 +19,7 @@ final class AppModel: ObservableObject {
     @Published var information = DeviceInformation()
     @Published private(set) var processBusy = false
     @Published private(set) var processResults: [ProcessTestApp: String] = [:]
+    @Published private(set) var backboardResult: String?
     private var developerConnection: DeveloperConnection?
     private var processOperation: Task<Void, Never>?
     var canTestProcesses: Bool { !busy && !processBusy && information.instrumentsServiceResponded && developerConnection != nil }
@@ -99,7 +100,7 @@ final class AppModel: ObservableObject {
     }
     func start(endpoint: ConnectionEndpoint, service: ServiceKind, discovered: Bool, recordID: UUID? = nil) {
         guard !busy && !processBusy else { return }
-        developerConnection?.cancel(); developerConnection = nil; processResults = [:]
+        developerConnection?.cancel(); developerConnection = nil; processResults = [:]; backboardResult = nil
         // A retry for this onboarding record must not tear down the channel
         // that may be keeping the other iPhone's session-limited trust alive.
         if !(hosting && recordID != nil && recordID == hostRecordID) { finishPresentation() }
@@ -189,7 +190,7 @@ final class AppModel: ObservableObject {
     func startHosting() {
         guard !busy && !processBusy else { return }
         finishPresentation(); busy = true; hosting = true; presentPairing = true; service = .pairableHost
-        processResults = [:]
+        processResults = [:]; backboardResult = nil
         tcpOnly = false
         checks = [:]; state = PairingState(); information = DeviceInformation(); errorMessage = nil; lastSavedID = nil
         pin = ""; hostPIN = nil; stageStart = [:]; activeCheck = nil
@@ -297,6 +298,28 @@ final class AppModel: ObservableObject {
         }
     }
     private func receiveInformation(_ value: DeviceInformation) { information = value }
+    func killBackboard() {
+        guard canTestProcesses, let developer = developerConnection else { return }
+        processBusy = true; backboardResult = "Resolving BackBoard on the paired device…"
+        processOperation = Task { [weak self] in
+            guard let self else { return }
+            let started = Date()
+            defer { self.processBusy = false; self.processOperation = nil }
+            do {
+                let result = try await developer.terminateBackboard()
+                let text = result.message
+                self.backboardResult = text
+                let status: CheckResult
+                if case .acknowledged = result { status = .passed } else { status = .notAttempted }
+                self.append(DiagnosticEvent(operation: .services, service: self.service, result: status, message: "Manual BackBoard request: " + text, duration: Date().timeIntervalSince(started)))
+            } catch {
+                let safe = TVPairError.safe(error)
+                let text = safe.localizedDescription + " The request may already have reached the device; a graphical-session restart can disconnect this session. Reconnect before another action."
+                self.backboardResult = text
+                self.append(DiagnosticEvent(operation: .services, service: self.service, result: Task.isCancelled ? .cancelled : .failed, message: "Manual BackBoard request: " + text, duration: Date().timeIntervalSince(started), failure: safe))
+            }
+        }
+    }
     private func waitForPIN() async throws -> String {
         try await withTaskCancellationHandler {
             try Task.checkCancellation()

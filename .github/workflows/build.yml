@@ -5,6 +5,11 @@ on:
     paths-ignore: ['**.md', 'LICENSE']
   pull_request:
   workflow_dispatch:
+    inputs:
+      ipa_only:
+        description: 'Build and package the IPA without unit/protocol or simulator tests'
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
@@ -12,6 +17,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   build:
+    if: ${{ github.event_name != 'push' || !contains(github.event.head_commit.message, '[ipa-only]') }}
     runs-on: macos-15
     timeout-minutes: 30
     steps:
@@ -28,6 +34,7 @@ jobs:
           swift package --package-path Packages/TVPairCore resolve 2>&1 | tee artifacts/dependencies.log
           xcodebuild -resolvePackageDependencies -project TVPair.xcodeproj -scheme TVPair 2>&1 | tee -a artifacts/dependencies.log
       - name: Core unit and protocol tests
+        if: ${{ inputs.ipa_only != true }}
         env:
           SWIFT_BACKTRACE: enable=yes
           NSUnbufferedIO: "YES"
@@ -37,7 +44,7 @@ jobs:
           "$TVPAIR_OPENSSL_CLI" version | tee artifacts/openssl-peer.txt
           swift test --package-path Packages/TVPairCore 2>&1 | tee artifacts/tests.log
       - name: Upload protocol test logs
-        if: always()
+        if: ${{ always() && inputs.ipa_only != true }}
         uses: actions/upload-artifact@v4
         with:
           name: TVPair-protocol-tests
@@ -81,6 +88,7 @@ jobs:
             artifacts/SHA256SUMS.txt
           retention-days: 14
       - name: Simulator launch smoke test
+        if: ${{ inputs.ipa_only != true }}
         timeout-minutes: 8
         run: |
           set -o pipefail

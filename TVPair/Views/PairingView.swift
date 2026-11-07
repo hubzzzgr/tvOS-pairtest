@@ -5,6 +5,7 @@ struct PairingView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.dismiss) private var dismiss
     @FocusState private var pinFocused: Bool
+    @State private var confirmBackboard = false
     var body: some View {
         NavigationStack {
             List {
@@ -78,6 +79,16 @@ struct PairingView: View {
                         } header: { Text("App pause / resume test") } footer: {
                             Text("Open the target app on the OTHER device first. iOS may deny suspension of App Store apps. An acknowledgement confirms the request, not a verified frozen state. Use Resume to undo a pause; closing this screen does not resume the app.")
                         }
+                        Section {
+                            Button(role: .destructive) { confirmBackboard = true } label: {
+                                Label("Kill BackBoard…", systemImage: "power")
+                            }.disabled(!model.canTestProcesses)
+                            if let text = model.backboardResult {
+                                Text(text).font(.footnote).foregroundStyle(.secondary).textSelection(.enabled)
+                            }
+                        } header: { Text("Paired device — BackBoard") } footer: {
+                            Text("Attempts to terminate backboardd on the paired device. This may restart its graphical session and disconnect the tunnel. Requires the Instruments probe to pass; iOS may deny the request.")
+                        }
                     }
                 }
                 if let error = model.storageError { Section("Storage") { Text(error).font(.footnote).foregroundStyle(.orange) } }
@@ -86,6 +97,12 @@ struct PairingView: View {
                 }
             }
             .navigationTitle("Connection test").navigationBarTitleDisplayMode(.inline)
+            .confirmationDialog("Kill BackBoard on the paired device?", isPresented: $confirmBackboard, titleVisibility: .visible) {
+                Button("Kill BackBoard", role: .destructive) { model.killBackboard() }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This sends a termination request to backboardd on the paired device. Its graphical session may restart and this connection may close. Unsaved work may be lost.")
+            }
             .toolbar { ToolbarItem(placement: .cancellationAction) {
                 Button(model.busy || model.processBusy ? "Cancel" : "Done") { if model.busy || model.processBusy { model.cancel() } else { model.finishPresentation(); dismiss() } }
             } }

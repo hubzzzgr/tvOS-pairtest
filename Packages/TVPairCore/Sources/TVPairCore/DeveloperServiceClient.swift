@@ -1,5 +1,16 @@
 import Foundation
 
+public enum BackboardTerminationOutcome: Sendable {
+    case notRunning, changed, acknowledged
+    public var message: String {
+        switch self {
+        case .notRunning: return "backboardd was not present in the paired device's process list. No termination request was sent."
+        case .changed: return "BackBoard's process changed. No termination request was sent; try again."
+        case .acknowledged: return "BackBoard termination request acknowledged. The paired device may restart its graphical session and disconnect. Acknowledgement does not verify termination."
+        }
+    }
+}
+
 public struct DeviceInformation: Sendable {
     public var name: String?
     public var nameSource: String?
@@ -38,6 +49,7 @@ public actor DeveloperConnection {
     private let savedName: String?
     private var rsd: RemoteXPCTransport?
     private var instruments: InstrumentsTransport?
+    private var deviceInfoChannel: Int32?
     private var processRPC: InstrumentsProcessRPC?
     private var operating = false
     public init(tunnel: TrustedTunnel, hostIdentifier: String, savedName: String?) {
@@ -69,7 +81,7 @@ public actor DeveloperConnection {
                 try await client.open()
                 let channel = try await client.channel("com.apple.instruments.server.services.deviceinfo")
                 guard case .some(.array(_)) = try await client.call(channel: channel, selector: "runningProcesses") else { throw TVPairError.malformed("Instruments running-process list") }
-                instruments = client; result.instrumentsServiceResponded = true
+                instruments = client; deviceInfoChannel = channel; result.instrumentsServiceResponded = true
                 result.developerServiceDetail = "Instruments deviceinfo responded to a read-only request. App process control is a separate permission test."
                 await report(.testingServices, .services, .passed, result.developerServiceDetail)
                 await updateInformation(result); return result
@@ -123,5 +135,51 @@ public actor DeveloperConnection {
         }
         guard let rpc = processRPC else { throw TVPairError.malformed("Instruments process channel") }
         return try await AppProcessTest.perform(app: app, action: action, rpc: rpc)
+    }
+    /// Explicit manual action scoped to the paired device's exact backboardd
+    /// process. No caller-provided PID, name or signal is accepted.
+    public func terminateBackboard() async throws -> BackboardTerminationOutcome {
+        guard !operating else { throw TVPairError.malformed("concurrent developer operation") }
+        operating = true; defer { operating = false }
+        guard let instruments, let deviceInfoChannel else {
+            throw TVPairError.unsupported("the Instruments service has not passed its read-only probe")
+        }
+        // Open the control channel before resolving the target, to minimize the
+        // interval between fresh process identification and the signal request.
+        if processRPC == nil {
+            let channel = try await instruments.channel("com.apple.instruments.server.services.processcontrol")
+            processRPC = InstrumentsProcessRPC(transport: instruments, channel: channel)
+        }
+        guard let rpc = processRPC else { throw TVPairError.malformed("Instruments process channel") }
+        guard let pid = try await backboardPID(instruments, channel: deviceInfoChannel) else {
+            return .notRunning
+        }
+        guard try await backboardPID(instruments, channel: deviceInfoChannel) == pid else {
+            return .changed
+        }
+        let executable = try await instruments.call(channel: deviceInfoChannel, selector: "execnameForPid:", arguments: [.object(.integer(pid))])
+        guard let path = executable?.string, path.split(separator: "/").last == "backboardd" else {
+            throw TVPairError.unsupported("the device did not confirm the backboardd executable; no termination request was sent")
+        }
+        try Task.checkCancellation()
+        // The reply-bearing signal selector avoids treating a fire-and-forget
+        // killPid: write as device acknowledgement.
+        let result = try await rpc.invoke("sendSignal:toPid:", values: [.integer(9), .integer(pid)])
+        if case let .some(.error(code)) = result { throw TVPairError.developer(code) }
+        guard result == nil || result == .null || result == .bool(true) else {
+            throw result == .bool(false) ? TVPairError.developer(-1) : TVPairError.malformed("Instruments BackBoard termination acknowledgement")
+        }
+        return .acknowledged
+    }
+    private func backboardPID(_ client: InstrumentsTransport, channel: Int32) async throws -> Int64? {
+        guard case let .some(.array(processes)) = try await client.call(channel: channel, selector: "runningProcesses") else {
+            throw TVPairError.malformed("Instruments running-process list")
+        }
+        let matches = processes.compactMap(\.dictionary).filter { $0["name"]?.string == "backboardd" }
+        guard !matches.isEmpty else { return nil }
+        guard matches.count == 1, let pid = matches[0]["pid"]?.integer, pid > 1, pid <= Int32.max else {
+            throw TVPairError.malformed("Instruments ambiguous or invalid BackBoard process identifier")
+        }
+        return pid
     }
 }
