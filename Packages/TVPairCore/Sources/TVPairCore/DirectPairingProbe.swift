@@ -48,11 +48,13 @@ public final class DirectPairingProbe: @unchecked Sendable {
         } onCancel: { [weak self] in gate.finish(.failure(CancellationError())); self?.cancel() }
     }
     /// One operation per probe. Queries only the chosen IP on UDP 5353.
-    public func resolve(_ service: ServiceKind) async throws -> ConnectionEndpoint {
+    public func resolve(_ service: ServiceKind, timeout: TimeInterval = 12) async throws -> ConnectionEndpoint {
         guard service.supportsPairing else { throw TVPairError.unsupported("direct lookup supports pairing services only") }
+        guard timeout.isFinite, timeout > 0, timeout <= 30 else { throw TVPairError.malformed("direct lookup deadline") }
+        let deadline = Date().addingTimeInterval(timeout)
         try begin()
         defer { cancel() }
-        try await execute(timeout: 3) { [self] (gate: OperationGate<Void>) in
+        try await execute(timeout: timeLimit(deadline, cap: 3)) { [self] (gate: OperationGate<Void>) in
             connection.stateUpdateHandler = { state in
                 switch state {
                 case .ready: gate.finish(.success(()))
@@ -63,8 +65,8 @@ public final class DirectPairingProbe: @unchecked Sendable {
             }
             connection.start(queue: queue)
         }
-        let name = service.rawValue + "local.", serviceName = DNSName(service.rawValue + "local.")
-        var records = try await query(name, type: 12)
+        let serviceName = DNSName(service.rawValue + "local.")
+        var records = try await query(serviceName, type: 12, deadline: deadline)
         let instances = Set(records.compactMap { record -> DNSName? in
             guard record.name == serviceName, record.ttl > 0, case let .pointer(instance) = record.value,
                   instance.labels.count == serviceName.labels.count + 1,
@@ -75,7 +77,7 @@ public final class DirectPairingProbe: @unchecked Sendable {
             throw TVPairError.unsupported("the selected device did not advertise the requested developer pairing service in its direct DNS response. Keep Remote App and Devices open on the TV")
         }
         for instance in instances where !records.contains(where: { $0.name == instance && $0.type == 33 && $0.ttl > 0 }) {
-            records += try await query(instance, type: 33)
+            records += try await query(instance, type: 33, deadline: deadline)
         }
         let ports = Set(records.compactMap { record -> UInt16? in
             guard instances.contains(record.name), record.ttl > 0,
@@ -90,18 +92,23 @@ public final class DirectPairingProbe: @unchecked Sendable {
         // responder cannot redirect the next connection to another host.
         return try ConnectionEndpoint(host: host, port: String(port))
     }
-    private func query(_ name: String, type: UInt16) async throws -> [DNSRecord] { try await query(DNSName(name), type: type) }
-    private func query(_ name: DNSName, type: UInt16) async throws -> [DNSRecord] {
+    private func timeLimit(_ deadline: Date, cap: TimeInterval) throws -> TimeInterval {
+        try Task.checkCancellation()
+        let remaining = deadline.timeIntervalSinceNow
+        guard remaining > 0 else { throw TVPairError.timeout }
+        return min(cap, remaining)
+    }
+    private func query(_ name: DNSName, type: UInt16, deadline operationDeadline: Date) async throws -> [DNSRecord] {
         let id = UInt16.random(in: 1...UInt16.max)
         let bytes = try DirectDNSCodec.query(name, type: type, id: id)
-        try await execute(timeout: 2) { [self] (gate: OperationGate<Void>) in
+        try await execute(timeout: timeLimit(operationDeadline, cap: 2)) { [self] (gate: OperationGate<Void>) in
             connection.send(content: bytes, completion: .contentProcessed { error in
                 if let error { gate.finish(.failure(TCPTransport.safeError(error))) } else { gate.finish(.success(())) }
             })
         }
-        let deadline = Date().addingTimeInterval(4)
+        let deadline = min(operationDeadline, Date().addingTimeInterval(4))
         for _ in 0..<8 {
-            let data: Data = try await execute(timeout: deadline.timeIntervalSinceNow) { [self] gate in
+            let data: Data = try await execute(timeout: timeLimit(deadline, cap: 4)) { [self] gate in
                 connection.receiveMessage { data, _, _, error in
                     if let error { gate.finish(.failure(TCPTransport.safeError(error))) }
                     else if let data { gate.finish(.success(data.zeroBased)) }

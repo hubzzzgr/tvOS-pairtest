@@ -24,6 +24,14 @@ No LiveContainer IPA is patched, rebuilt, replaced or installed by this flow.
    new connection. TLS-PSK/CDTunnel and a developer-service probe follow.
    Only an actual successful developer probe verifies developer access.
 
+Build 12 gives this handoff a 20-second deadline, checks same-IP regular-service
+advertisements between direct lookups, and retries with fresh probes capped at
+five seconds each. Tag-matched hints are preferred when available. Full pinned
+peer verification is still mandatory even when only an IP/port hint is present.
+The user reported successful build-11 developer setup and later saved-record
+reuse; its first attempt had stopped after one unanswered direct regular-service
+lookup. The change addresses that readiness/discovery window, before TLS starts.
+
 This is an experimental bootstrap attempt, not a verified pre-pair activation
 command. It can run before developer trust has been established, but depends
 on the TV exposing its pairing service and accepting the TV-code exchange.

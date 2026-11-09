@@ -30,6 +30,12 @@ The user supplied screenshots from LiveContainer while testing another iPhone. T
 
 Build 2 tracks browser failures per service, suppresses blanket permission warnings after successful discovery, distinguishes regular/saved-record endpoints from Apple TV manual setup, and adds explicit device-initiated iOS 27/iPadOS 27 onboarding. Its listener advertisement can still be blocked by LiveContainer's host declarations; successful browsing of a different service does not establish publishing permission. The new onboarding implementation remains physically unvalidated until a user repeats the test with build 2.
 
+## Build-12 physical report and handoff scope
+
+The user reports that build 11 enabled developer access and paired with the Apple TV / tvOS 27.2 inside LiveContainer, then successfully reconnected using the generated record after the regular endpoint appeared in discovery. The new attached log independently verifies a direct Manual Remote Pairing lookup, the TV-code challenge, SRP proof/peer signature success, and successful record persistence. It then times out about 4.26 seconds into a direct regular-endpoint lookup, before Pair-Verify, createListener, TLS or CDTunnel. The later successful reconnect's independent checks are not in this particular export. Raw attachments and device identifiers are not committed.
+
+Build 12 addresses the initial endpoint-readiness/discovery window with a 20-second deadline, repeated bounded direct lookups and same-IP system-discovery hints. Pinned verification remains mandatory after lookup, and the pairing record is preserved. The terminal error distinguishes an unavailable endpoint from a TLS failure and directs the user to saved-record reconnect rather than another pairing. No LiveContainer, pairing crypto or TLS changes are part of this fix. Physical automatic handoff after this change remains to be verified. IPA-only build preference remains in effect.
+
 ## Build-11 app-only developer bootstrap scope
 
 [IPA-only run 42563215182](https://github.com/hubzzzgr/tvOS-pairtest/actions/runs/42563215182) successfully archived iOS arm64 and packaged source `d17c6a938e58ede1d9f0d3320981d78395871853`. Unit/protocol tests and simulator checks were skipped. Local inspection confirms build **11**, minimum iOS **17.0**, seven Bonjour declarations and unsigned arm64 app/OpenSSL binaries. The **2,642,132-byte** IPA matches CI and GitHub's release digest: `cae7539090a9c5e2795e2268ddced3694e48d22ffdcff7256b96bd3a131b1149`. The [public prerelease](https://github.com/hubzzzgr/tvOS-pairtest/releases/tag/build-11) targets this compiled source. No runtime parser, visual or physical activation test was performed, and no LiveContainer modification was made.
@@ -132,7 +138,7 @@ This evidence does not prove iOS 27 runtime compatibility, LiveContainer guest b
 | iOS 27 standalone | No physical test | Unknown |
 | User's iPhone15,4 / iOS 27.0.1 in LiveContainer | User screenshots report pairing, persistence, trusted tunnel, RSD information and labelled name fallback passing; storage backend not reported | Build-5 Instruments probe failed at auxiliary-header decoding; build-6 parser fix awaits physical retest |
 | tvOS 26 | Current reference protocol path inspected; no explicit local compatibility proof | Unknown |
-| tvOS 27 | Current reference protocol path inspected; no explicit local compatibility proof | Unknown |
+| tvOS 27.2 | User reports build-11 app-only developer setup and PIN pairing succeeded in LiveContainer | Attached first attempt stops at post-pairing endpoint lookup; later saved-record reconnect reported working, with its independent checks not included in that export |
 
 The current upstream implementations document Apple TV manual pairing, but their iOS 27 support does not itself establish tvOS 27 compatibility or this app's interoperability. Record exact product/version/build and all independent results during each physical test.
 

@@ -162,6 +162,53 @@ final class AppModel: ObservableObject {
             }
         }
     }
+    private func regularEndpointFromScan(host: String, record: PairingRecord) -> ConnectionEndpoint? {
+        let candidates = discovery.devices.filter { device in
+            guard device.service == .remotePairing, let candidate = try? ConnectionEndpoint(host: host, port: String(device.port)) else { return false }
+            return device.matchesNetworkEndpoint(candidate)
+        }
+        let tagged = candidates.filter { AdvertisementIdentity.matches(record: record, identifier: $0.advertisedIdentifier, authTag: $0.authenticationTag) }
+        let ports = Set((tagged.isEmpty ? candidates : tagged).map(\.port))
+        guard ports.count == 1, let port = ports.first else { return nil }
+        // This is an endpoint hint on the original chosen IP. The next step
+        // still requires the saved record's pinned peer signature.
+        return try? ConnectionEndpoint(host: host, port: String(port))
+    }
+    private func waitForAppleTVRegularEndpoint(host: String, record: PairingRecord) async throws -> ConnectionEndpoint {
+        if let endpoint = regularEndpointFromScan(host: host, record: record) { return endpoint }
+        if !discovery.scanning { discovery.start() }
+        let deadline = Date().addingTimeInterval(20)
+        var attempt = 0
+        while deadline.timeIntervalSinceNow > 0 {
+            try Task.checkCancellation()
+            if let endpoint = regularEndpointFromScan(host: host, record: record) {
+                log(.tunnel, .running, "The TV's regular endpoint appeared in discovery. Verifying the saved peer identity next.")
+                return endpoint
+            }
+            attempt += 1
+            log(.tunnel, .running, "Pairing and record saving succeeded. Waiting for the TV's regular endpoint to become available (lookup \(attempt)); TLS has not started.")
+            let probe = try DirectPairingProbe(host: host); directProbe = probe
+            do {
+                let endpoint = try await probe.resolve(.remotePairing, timeout: min(5, deadline.timeIntervalSinceNow))
+                directProbe = nil
+                log(.tunnel, .running, "The TV's regular endpoint answered a direct lookup. Verifying the saved peer identity next.")
+                return endpoint
+            } catch {
+                probe.cancel(); directProbe = nil
+                try Task.checkCancellation()
+                // A fresh advertisement can arrive while a direct query waits.
+                if let endpoint = regularEndpointFromScan(host: host, record: record) {
+                    log(.tunnel, .running, "The TV's regular endpoint appeared during the lookup. Verifying the saved peer identity next.")
+                    return endpoint
+                }
+                let safe = TVPairError.safe(error)
+                append(DiagnosticEvent(operation: .tunnel, service: .remotePairing, result: .running, message: "Regular-endpoint lookup did not complete; waiting within the post-pairing handoff deadline. " + safe.localizedDescription, failure: safe))
+            }
+            let remaining = deadline.timeIntervalSinceNow
+            if remaining > 0 { try await Task.sleep(for: .seconds(min(1, remaining))) }
+        }
+        throw TVPairError.unsupported("pairing and record saving succeeded, but the TV's regular endpoint was not available within 20 seconds. No TLS handshake was attempted. Rescan and reconnect using the saved record; there is no need to pair again")
+    }
     func start(endpoint: ConnectionEndpoint, service: ServiceKind, discovered: Bool, recordID: UUID? = nil, deviceID: String? = nil, activationHost: String? = nil) {
         guard !busy && !processBusy else { return }
         do { if activationHost == nil { try validatePairingEndpoint(endpoint, service: service) } }
@@ -231,10 +278,8 @@ final class AppModel: ObservableObject {
                     // on a fresh connection before attempting any tunnel operation.
                     transport.cancel()
                     if let activationHost {
-                        self.log(.tunnel, .running, "Pairing authenticated. Resolving the same TV's regular developer endpoint directly before pinned peer verification.")
-                        let probe = try DirectPairingProbe(host: activationHost); self.directProbe = probe
-                        trustedEndpoint = try await probe.resolve(.remotePairing)
-                        self.directProbe = nil; self.service = .remotePairing
+                        trustedEndpoint = try await self.waitForAppleTVRegularEndpoint(host: activationHost, record: authenticated)
+                        self.service = .remotePairing
                     } else if service == .manualPairing, let regular = self.discovery.devices.first(where: {
                         $0.service == .remotePairing && $0.endpoint != nil && AdvertisementIdentity.matches(record: authenticated, identifier: $0.advertisedIdentifier, authTag: $0.authenticationTag)
                     }), let resolved = regular.endpoint {
