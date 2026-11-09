@@ -124,7 +124,10 @@ public actor RemotePairingClient {
         let signature = try signingKey.signature(for: controllerSign + Data(hostID.utf8) + signingPublic)
         let localInfo = try OPACK.encode(.dictionary([
             "altIRK": .data(try PairingCrypto.random(16)), "accountID": .string(hostID),
-            "model": .string("iPhone"), "name": .string("TVPair"),
+            // Developer pairing uses the computer-host compatibility identity
+            // in both reference clients. This is a protocol role, not a claim
+            // about the iPhone that is running TVPair.
+            "model": .string("computer-model"), "name": .string("TVPair"),
             // Synthetic protocol identity metadata, never presented as retrieved device properties.
             "btAddr": .string("00:00:00:00:00:00"), "mac": .data(Data(repeating: 0, count: 6)),
             "remotepairing_serial_number": .string(hostID)

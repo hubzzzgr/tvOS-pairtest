@@ -12,3 +12,4 @@ xcuserdata/
 *.pairing
 *.rppairing
 .DS_Store
+__pycache__/
