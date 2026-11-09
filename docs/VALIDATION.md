@@ -32,6 +32,8 @@ Build 2 tracks browser failures per service, suppresses blanket permission warni
 
 ## Build-11 app-only developer bootstrap scope
 
+[IPA-only run 42563215182](https://github.com/hubzzzgr/tvOS-pairtest/actions/runs/42563215182) successfully archived iOS arm64 and packaged source `d17c6a938e58ede1d9f0d3320981d78395871853`. Unit/protocol tests and simulator checks were skipped. Local inspection confirms build **11**, minimum iOS **17.0**, seven Bonjour declarations and unsigned arm64 app/OpenSSL binaries. The **2,642,132-byte** IPA matches CI and GitHub's release digest: `cae7539090a9c5e2795e2268ddced3694e48d22ffdcff7256b96bd3a131b1149`. The [public prerelease](https://github.com/hubzzzgr/tvOS-pairtest/releases/tag/build-11) targets this compiled source. No runtime parser, visual or physical activation test was performed, and no LiveContainer modification was made.
+
 The user explicitly prohibited a LiveContainer patch. The previously prepared host helper was removed; no modified host IPA is produced. Build 11 implements direct unicast DNS-SD lookup to the selected TV, followed by developer-role PIN pairing, direct regular-endpoint lookup, pinned verification, tunnel negotiation and a developer probe. Its UI distinguishes a direct-query failure, accepted pairing, and verified developer-service access. There is no claim that an unpaired TV can be forced into a mode it does not expose, or that a DNS answer proves a mode change. The physical TV must respond to this lookup and approve the code exchange. Tests/simulator remain outside the requested IPA-only build; no physical app-only activation result is available yet.
 
 ## Build-9 service-result report and scope
