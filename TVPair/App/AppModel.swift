@@ -1,6 +1,14 @@
 import SwiftUI
 import TVPairCore
 
+struct ServiceTestSnapshot {
+    let endpoint: ConnectionEndpoint
+    let service: ServiceKind
+    let checks: [DiagnosticCheck: CheckResult]
+    let message: String
+    let finishedAt: Date
+}
+
 @MainActor
 final class AppModel: ObservableObject {
     let discovery = BonjourDiscovery()
@@ -8,6 +16,7 @@ final class AppModel: ObservableObject {
     @Published var saved: [SavedDevice] = []
     @Published var events: [DiagnosticEvent] = []
     @Published var checks: [DiagnosticCheck: CheckResult] = [:]
+    @Published private(set) var serviceTests: [String: ServiceTestSnapshot] = [:]
     @Published var state = PairingState()
     @Published var busy = false
     @Published var presentPairing = false
@@ -103,10 +112,26 @@ final class AppModel: ObservableObject {
         catch { errorMessage = TVPairError.safe(error).localizedDescription }
         message = text; log(check, result, text)
     }
-    func start(endpoint: ConnectionEndpoint, service: ServiceKind, discovered: Bool, recordID: UUID? = nil) {
+    func validatePairingEndpoint(_ endpoint: ConnectionEndpoint, service: ServiceKind) throws {
+        guard service.supportsPairing else { return }
+        let matches = discovery.devices.filter { $0.matchesNetworkEndpoint(endpoint) }
+        // A positive pairing advertisement on this exact location takes
+        // precedence; other advertisements do not prove pairing is impossible.
+        guard !matches.contains(where: { $0.service.supportsPairing }) else { return }
+        if let other = matches.first(where: { !$0.service.supportsPairing }) {
+            throw TVPairError.unsupported("this host and port are currently advertised as \(other.service.title), not Remote Pairing. Use Test TCP connection on that service's details page. For Apple TV developer pairing, select its separate Manual Remote Pairing advertisement and port")
+        }
+    }
+    func start(endpoint: ConnectionEndpoint, service: ServiceKind, discovered: Bool, recordID: UUID? = nil, deviceID: String? = nil) {
         guard !busy && !processBusy else { return }
+        do { try validatePairingEndpoint(endpoint, service: service) }
+        catch { errorMessage = TVPairError.safe(error).localizedDescription; return }
+        let selected = discovery.devices.first { device in
+            device.service == service && (deviceID.map { device.id == $0 } ?? (discovered && device.endpoint == endpoint))
+        }
+        let testedServiceID = selected?.id
         developerConnection?.cancel(); developerConnection = nil; processResults = [:]; backboardResult = nil
-        selectedDeviceSymbol = discovery.devices.first(where: { $0.endpoint == endpoint })?.systemImage ?? "network"
+        selectedDeviceSymbol = selected?.systemImage ?? "network"
         // A retry for this onboarding record must not tear down the channel
         // that may be keeping the other iPhone's session-limited trust alive.
         if !(hosting && recordID != nil && recordID == hostRecordID) { finishPresentation() }
@@ -123,6 +148,9 @@ final class AppModel: ObservableObject {
                 for check in DiagnosticCheck.allCases where self.checks[check] == nil || self.checks[check] == .running {
                     let skipped = self.tcpOnly && ![DiagnosticCheck.discovery, .resolution, .tcp].contains(check)
                     self.log(check, skipped ? .notAttempted : self.stage == .cancelled ? .cancelled : .blocked, skipped ? "This check is outside the selected TCP-only test." : "This check did not complete in this attempt.")
+                }
+                if let testedServiceID {
+                    self.serviceTests[testedServiceID] = ServiceTestSnapshot(endpoint: endpoint, service: service, checks: self.checks, message: self.message, finishedAt: Date())
                 }
                 self.operation = nil
             }

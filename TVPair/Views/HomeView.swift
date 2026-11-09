@@ -151,10 +151,14 @@ struct ManualConnectionView: View {
                 Text("Enter the actual service port; ports may change. IPv6 link-local addresses require an interface scope (for example fe80::1%en0). The selected protocol is a user-supplied hint until its handshake is validated.").font(.footnote).foregroundStyle(.secondary)
                 if let error { Text(error).foregroundStyle(.orange) }
                 Button(kind.supportsNewPairing ? "Attempt Apple TV pairing" : "Test TCP connection") {
-                    do { let endpoint = try ConnectionEndpoint(host: host, port: port); dismiss(); Task { @MainActor in
-                        // Allow the manual sheet to dismiss before presenting the progress sheet.
-                        try? await Task.sleep(for: .milliseconds(350)); model.start(endpoint: endpoint, service: kind, discovered: false)
-                    } } catch { self.error = TVPairError.safe(error).localizedDescription }
+                    do {
+                        let endpoint = try ConnectionEndpoint(host: host, port: port)
+                        try model.validatePairingEndpoint(endpoint, service: kind)
+                        dismiss(); Task { @MainActor in
+                            // Allow the manual sheet to dismiss before presenting the progress sheet.
+                            try? await Task.sleep(for: .milliseconds(350)); model.start(endpoint: endpoint, service: kind, discovered: false)
+                        }
+                    } catch { self.error = TVPairError.safe(error).localizedDescription }
                 }.disabled(model.busy)
             }.navigationTitle("Manual connection").toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
         }

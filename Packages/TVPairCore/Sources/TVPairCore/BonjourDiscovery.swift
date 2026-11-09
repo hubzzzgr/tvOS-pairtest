@@ -91,19 +91,19 @@ public final class BonjourDiscovery: NSObject, ObservableObject, @preconcurrency
         onObservation?(DiagnosticEvent(operation: .discovery, service: kind, result: .failed, message: "The \(kind.title) Bonjour search stopped. Other service searches are independent.", failure: .network("DNS-SD", code)))
     }
     public func netServiceDidResolveAddress(_ sender: NetService) { update(sender) }
-    public func netService(_ sender: NetService, didUpdateTXTRecord data: Data) { update(sender) }
+    public func netService(_ sender: NetService, didUpdateTXTRecord data: Data) { update(sender, txtData: data) }
     public func netService(_ sender: NetService, didNotResolve errorDict: [String: NSNumber]) {
         let id = key(sender)
         guard var device = state.devices[id], services[id] === sender else { return }
         device.hostname = nil; device.addresses = []; device.port = 0; device.resolutionError = true
         state.update(device); publish()
     }
-    private func update(_ service: NetService) {
+    private func update(_ service: NetService, txtData: Data? = nil) {
         let id = key(service)
         guard var device = state.devices[id], services[id] === service else { return }
         device.hostname = service.hostName; device.port = service.port; device.resolutionError = false
         device.addresses = Array(Set((service.addresses ?? []).compactMap(Self.numericAddress))).sorted()
-        if let txt = service.txtRecordData() {
+        if let txt = txtData ?? service.txtRecordData() {
             let values = NetService.dictionary(fromTXTRecord: txt)
             device.advertisedModel = ["model", "deviceModel", "modelName", "rpmd", "am"].compactMap { values[$0].flatMap { String(data: $0, encoding: .utf8) } }.first.map(displayText)
             device.advertisedIdentifier = values["identifier"].flatMap { String(data: $0, encoding: .utf8) }

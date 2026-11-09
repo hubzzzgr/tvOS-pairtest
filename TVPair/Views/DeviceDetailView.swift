@@ -31,13 +31,13 @@ struct DeviceDetailView: View {
                         }
                     }
                     Button {
-                        if let endpoint = device.endpoint { model.start(endpoint: endpoint, service: device.service, discovered: true) }
+                        if let endpoint = device.endpoint { model.start(endpoint: endpoint, service: device.service, discovered: true, deviceID: device.id) }
                     } label: { Label(device.service.supportsNewPairing ? "Pair with this Apple TV" : "Test TCP connection", systemImage: "link") }
                     .disabled(device.endpoint == nil || model.busy)
                     if device.service.supportsPairing && !model.saved.isEmpty {
                         Menu {
                             ForEach(model.saved) { record in Button(record.name) {
-                                if let endpoint = device.endpoint { model.start(endpoint: endpoint, service: device.service, discovered: true, recordID: record.id) }
+                                if let endpoint = device.endpoint { model.start(endpoint: endpoint, service: device.service, discovered: true, recordID: record.id, deviceID: device.id) }
                             } }
                         } label: { Label("Reconnect with saved record", systemImage: "key.horizontal") }.disabled(device.endpoint == nil || model.busy)
                     }
@@ -45,7 +45,19 @@ struct DeviceDetailView: View {
             } else {
                 ContentUnavailableView("Service no longer available", systemImage: "wifi.slash", description: Text("Return to Devices and wait for a current advertisement. Start scanning again if it was stopped."))
             }
-            Section("Latest connection test") { CheckList(checks: model.checks) }
+            Section {
+                if let test = model.serviceTests[deviceID] {
+                    DetailRow(title: "Tested endpoint", value: test.endpoint.description)
+                    DetailRow(title: "Tested service", value: test.service.rawValue)
+                    Text(test.finishedAt.formatted(date: .omitted, time: .standard)).font(.caption).foregroundStyle(.secondary)
+                    Text(test.message).font(.footnote).foregroundStyle(.secondary)
+                    CheckList(checks: test.checks)
+                } else {
+                    Text("No test has completed for this service in this app session.").font(.footnote).foregroundStyle(.secondary)
+                }
+            } header: { Text("Latest test for this service") } footer: {
+                Text("Tests of other services and manually selected protocols are separate. A successful TCP-only test does not attempt pairing.")
+            }
         }.navigationTitle("Device details").navigationBarTitleDisplayMode(.inline)
     }
 }
@@ -87,7 +99,7 @@ struct AppleTVSetupView: View {
                 }
                 ForEach(pairingServices) { device in
                     Button {
-                        if let endpoint = device.endpoint { model.start(endpoint: endpoint, service: .manualPairing, discovered: true) }
+                        if let endpoint = device.endpoint { model.start(endpoint: endpoint, service: .manualPairing, discovered: true, deviceID: device.id) }
                     } label: {
                         VStack(alignment: .leading, spacing: 5) {
                             Label(device.name, systemImage: device.systemImage)

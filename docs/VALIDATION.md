@@ -30,6 +30,12 @@ The user supplied screenshots from LiveContainer while testing another iPhone. T
 
 Build 2 tracks browser failures per service, suppresses blanket permission warnings after successful discovery, distinguishes regular/saved-record endpoints from Apple TV manual setup, and adds explicit device-initiated iOS 27/iPadOS 27 onboarding. Its listener advertisement can still be blocked by LiveContainer's host declarations; successful browsing of a different service does not establish publishing permission. The new onboarding implementation remains physically unvalidated until a user repeats the test with build 2.
 
+## Build-9 service-result report and scope
+
+The next supplied diagnostics show the discovered AirPlay TCP test passing in **0.034 seconds** and Companion TCP passing in **0.011 seconds**, both with pairing correctly marked not attempted. Later manual attempts labelled Manual Remote Pairing fail before a handshake: one closes immediately and another times out after TCP succeeds. The export does not include those manually entered ports. The user reports trying AirPlay port 7000, but the log's failed request is labelled with the manually selected RPPairing protocol. The details page in build 8 reused the global last attempt, which made another attempt's failed pairing checks appear under a discovered Companion service. Manual Pairing and RSD searches still fail with `-72008`.
+
+Build 9 stores completed results per discovered service, prevents a currently known non-pairing location being relabelled as pairing, makes the connected-TCP/no-handshake error specific, and consumes fresh TXT callback bytes for type hints. These changes do not implement developer pairing through AirPlay or repair the installed LiveContainer host's missing declarations. Raw attachments, names and addresses are not committed. The user's existing IPA-only preference remains in effect; no new unit/protocol or simulator test result is claimed.
+
 ## Build-8 discovery report and scope
 
 [IPA-only build 42558299432](https://github.com/hubzzzgr/tvOS-pairtest/actions/runs/42558299432) succeeded for source `982185bb6a8d0b536b93dc5396b555391062d2c8` using Xcode 16.4 / Swift 6.1.2. The initial archive caught a SwiftUI Section initializer mismatch in the new guide; the corrected source compiled and packaged successfully. Unit/protocol and simulator checks were skipped following the user's earlier preference. No runtime visual or physical device test was performed for this build.

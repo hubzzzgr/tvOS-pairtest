@@ -8,11 +8,13 @@ public enum TVPairError: Error, LocalizedError, Equatable {
     case authentication, keychain(Int32), storage, invalidRecord(String)
     case advertisement(Int32)
     case developer(Int)
+    case pairingHandshakeTimeout
 
     public var errorDescription: String? {
         switch self {
         case .invalidEndpoint: return "Enter a valid IP address or hostname and a port from 1 to 65535. IPv6 link-local addresses need a scope, such as %en0."
         case .timeout: return "The operation timed out. Check Wi-Fi and the selected pairing flow, and keep TVPair and the other device's pairing screen open."
+        case .pairingHandshakeTimeout: return "TCP connected, but the endpoint did not return an RPPairing handshake within 10 seconds. Check the selected service and its own advertised pairing port. AirPlay and Companion ports do not speak RPPairing; increasing the timeout will not change their protocol."
         case .closed: return "The peer closed the connection."
         case .cancelled: return "Cancelled."
         case let .network(domain, code):
@@ -150,6 +152,13 @@ public struct AppleTVDevice: Identifiable, Equatable, Sendable {
     public var endpoint: ConnectionEndpoint? {
         let candidates = [hostname].compactMap { $0 } + addresses
         return candidates.lazy.compactMap { try? ConnectionEndpoint(host: $0, port: String(port)) }.first
+    }
+    /// Used only to detect a conflicting service hint, never to infer trust.
+    /// Exact known host/address aliases and the port must both match.
+    public func matchesNetworkEndpoint(_ endpoint: ConnectionEndpoint) -> Bool {
+        guard port == Int(endpoint.port) else { return false }
+        func normalized(_ host: String) -> String { host.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: ".")) }
+        return ([hostname].compactMap { $0 } + addresses).contains { normalized($0) == normalized(endpoint.host) }
     }
     public var deviceFamily: DeviceFamily {
         let model = DeviceFamily.model(advertisedModel)

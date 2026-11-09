@@ -64,6 +64,7 @@ public actor RemotePairingClient {
         try await sendPlain(["request": ["_0": ["handshake": ["_0": ["hostOptions": ["attemptPairVerify": true], "wireProtocolVersion": 19]]]]])
         let handshake: [String: Any]
         do { handshake = try await receivePlain() }
+        catch TVPairError.timeout { throw TVPairError.pairingHandshakeTimeout }
         catch TVPairError.closed {
             throw TVPairError.unsupported(service == .manualPairing
                 ? "the endpoint closed before the Apple TV pairing handshake. Keep Settings → Remotes and Devices → Remote App and Devices open on the TV, and use its advertised Manual Remote Pairing port. AirPlay, Companion and lockdown ports cannot be used for this handshake. tvOS has no separate Developer Mode switch"
