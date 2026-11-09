@@ -17,16 +17,19 @@ public struct DiscoveryHealth: Sendable {
     }
     public var isScanning: Bool { !active.isEmpty }
     public var message: String? {
-        // A successful observation is direct evidence against a blanket denial.
-        // Individual errors remain available in the service-specific diagnostics.
-        guard observed.isEmpty, !failures.isEmpty else { return nil }
+        guard !failures.isEmpty else { return nil }
+        let missing = failures.filter { $0.value == -72008 }.keys.sorted { $0.rawValue < $1.rawValue }
+        if !missing.isEmpty {
+            let types = missing.map(\.rawValue).joined(separator: ", ")
+            return "Missing Bonjour configuration (-72008) for: \(types). TVPair declares these services, but in LiveContainer the host must declare them too. Other services can still appear. This is not evidence that Developer Mode is off on the target."
+        }
         let details = failures.keys.sorted { $0.rawValue < $1.rawValue }.map { "\($0.title) (DNS-SD \(failures[$0]!))" }.joined(separator: "; ")
-        if active.isEmpty {
+        if active.isEmpty && observed.isEmpty {
             return "Bonjour searches stopped: \(details). Restart scanning. If the error persists, check Local Network settings and the host's Bonjour service declarations. These codes alone do not establish a permission denial."
         }
         return "Some Bonjour searches are unavailable: \(details). Other service types are still being searched."
     }
     public var offerSettings: Bool {
-        observed.isEmpty && active.isEmpty && failures.values.contains { $0 == -72008 || $0 == -65570 }
+        observed.isEmpty && failures.values.contains { $0 == -65570 }
     }
 }

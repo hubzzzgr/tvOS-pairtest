@@ -64,7 +64,11 @@ public actor RemotePairingClient {
         try await sendPlain(["request": ["_0": ["handshake": ["_0": ["hostOptions": ["attemptPairVerify": true], "wireProtocolVersion": 19]]]]])
         let handshake: [String: Any]
         do { handshake = try await receivePlain() }
-        catch TVPairError.closed { throw TVPairError.unsupported("the peer closed before the RPPairing handshake. Check the selected service and matching record; Developer Mode alone does not authorize a trusted endpoint") }
+        catch TVPairError.closed {
+            throw TVPairError.unsupported(service == .manualPairing
+                ? "the endpoint closed before the Apple TV pairing handshake. Keep Settings → Remotes and Devices → Remote App and Devices open on the TV, and use its advertised Manual Remote Pairing port. AirPlay, Companion and lockdown ports cannot be used for this handshake. tvOS has no separate Developer Mode switch"
+                : "the peer closed before the RPPairing handshake. Use the regular Remote Pairing endpoint and its matching saved record")
+        }
         guard let info = nested(handshake, "response", "_1", "handshake", "_0") as? [String: Any] else { throw TVPairError.malformed("handshake response envelope") }
         if let version = info["wireProtocolVersion"] as? Int {
             try PairingWireVersion.validatePeer(maximum: version, minimum: info["minimumSupportedWireProtocolVersion"] as? Int ?? 8)

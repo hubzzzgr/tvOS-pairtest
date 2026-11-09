@@ -6,7 +6,7 @@ struct RootView: View {
     @EnvironmentObject private var model: AppModel
     var body: some View {
         TabView {
-            NavigationStack { HomeView(discovery: model.discovery) }.tabItem { Label("Devices", systemImage: "appletv") }
+            NavigationStack { HomeView(discovery: model.discovery) }.tabItem { Label("Devices", systemImage: "network") }
             NavigationStack { DiagnosticsView() }.tabItem { Label("Diagnostics", systemImage: "waveform.path.ecg") }
         }
         .tint(.cyan)
@@ -56,8 +56,9 @@ struct HomeView: View {
                         NavigationLink { DeviceDetailView(deviceID: device.id, discovery: discovery) } label: { DeviceCard(device: device) }
                     }
                 }
-            } header: { Text("Discovered services • \(discovery.devices.count)") } footer: { Text("A device can advertise multiple endpoints. Lockdown endpoints support a TCP test only.") }
+            } header: { Text("Discovered services • \(discovery.devices.count)") } footer: { Text("Only devices advertising supported Bonjour services can appear; this is not a list of every device on Wi-Fi. A device can advertise multiple endpoints. AirPlay and Companion can reveal devices without developer services, but cannot be used for developer pairing.") }
             Section("Connect directly") {
+                NavigationLink { AppleTVSetupView(discovery: discovery) } label: { Label("Set up Apple TV pairing", systemImage: "appletv") }
                 Button { manual = true } label: { Label("Enter IP address or hostname", systemImage: "network") }
             }
             Section {
@@ -114,12 +115,12 @@ struct DeviceCard: View {
     let device: AppleTVDevice
     var body: some View {
         HStack(spacing: 13) {
-            Image(systemName: "appletv.fill").font(.title2).foregroundStyle(.cyan).frame(width: 40)
+            Image(systemName: device.systemImage).font(.title2).foregroundStyle(.cyan).frame(width: 40)
             VStack(alignment: .leading, spacing: 5) {
                 Text(device.name).font(.headline)
                 Text(device.endpoint?.description ?? (device.resolutionError ? "Resolution failed" : "Resolving…")).font(.caption.monospaced()).foregroundStyle(.secondary)
                 Text(device.service.title).font(.caption).foregroundStyle(.cyan)
-                Text("Discovered • unauthenticated").font(.caption2).foregroundStyle(.secondary)
+                Text(device.identityLabel).font(.caption2).foregroundStyle(.secondary)
             }
         }.padding(.vertical, 7)
     }
@@ -132,13 +133,20 @@ struct ManualConnectionView: View {
     @State private var port = ""
     @State private var kind = ServiceKind.manualPairing
     @State private var error: String?
+    init(initialHost: String = "") { _host = State(initialValue: initialHost) }
     var body: some View {
         NavigationStack {
             Form {
                 Section("Endpoint") {
                     TextField("IP address or hostname", text: $host).textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
                     TextField("Advertised port", text: $port).keyboardType(.numberPad)
-                    Picker("Protocol", selection: $kind) { ForEach(ServiceKind.browsed, id: \.self) { Text($0.title).tag($0) } }
+                    Picker("Protocol", selection: $kind) { ForEach(ServiceKind.browsed.filter { !$0.discoveryOnly }, id: \.self) { Text($0.title).tag($0) } }
+                }
+                if kind == .manualPairing {
+                    Section("Apple TV pairing") {
+                        Text("On the TV, keep Settings → Remotes and Devices → Remote App and Devices open. Enter the current port advertised by _remotepairing-manual-pairing._tcp. AirPlay, Companion and lockdown ports are different services, even on the same IP.")
+                        Text("Port 49152 on another device is not a default for this TV. tvOS has no separate Developer Mode switch. Developer Settings appear after pairing; TVPair cannot turn on a missing pairing endpoint by IP.").font(.footnote).foregroundStyle(.secondary)
+                    }
                 }
                 Text("Enter the actual service port; ports may change. IPv6 link-local addresses require an interface scope (for example fe80::1%en0). The selected protocol is a user-supplied hint until its handshake is validated.").font(.footnote).foregroundStyle(.secondary)
                 if let error { Text(error).foregroundStyle(.orange) }

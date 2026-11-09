@@ -7,7 +7,9 @@ final class CoreTests: XCTestCase {
     func testServiceParsingDoesNotTreatLockdownAsRemotePairing() {
         XCTAssertEqual(ServiceKind(bonjourType: "_remotepairing-manual-pairing._tcp"), .manualPairing)
         XCTAssertFalse(ServiceKind.lockdown.supportsPairing)
-        XCTAssertNil(ServiceKind(bonjourType: "_airplay._tcp."))
+        XCTAssertEqual(ServiceKind(bonjourType: "_airplay._tcp."), .airPlay)
+        XCTAssertFalse(ServiceKind.airPlay.supportsPairing)
+        XCTAssertFalse(ServiceKind.companion.supportsNewPairing)
     }
     func testDiscoveryAddUpdateRemove() {
         var state = DiscoveryState()

@@ -43,6 +43,11 @@ final class AppModel: ObservableObject {
     private var stageStart: [DiagnosticCheck: Date] = [:]
     private var activeCheck: DiagnosticCheck?
     var stage: PairingStage { state.stage }
+    private var selectedDeviceSymbol = "network"
+    var connectionSystemImage: String {
+        let family = DeviceFamily.model(information.productType)
+        return family == .unknown ? selectedDeviceSymbol : family.systemImage
+    }
     var fullSuccess: Bool { state.completeSuccess && checks[.services] == .passed && checks[.information] == .passed }
     var summary: String {
         if busy {
@@ -101,6 +106,7 @@ final class AppModel: ObservableObject {
     func start(endpoint: ConnectionEndpoint, service: ServiceKind, discovered: Bool, recordID: UUID? = nil) {
         guard !busy && !processBusy else { return }
         developerConnection?.cancel(); developerConnection = nil; processResults = [:]; backboardResult = nil
+        selectedDeviceSymbol = discovery.devices.first(where: { $0.endpoint == endpoint })?.systemImage ?? "network"
         // A retry for this onboarding record must not tear down the channel
         // that may be keeping the other iPhone's session-limited trust alive.
         if !(hosting && recordID != nil && recordID == hostRecordID) { finishPresentation() }
@@ -127,7 +133,7 @@ final class AppModel: ObservableObject {
                     try await transport.connect(timeout: 10)
                     self.log(.resolution, .passed, "Endpoint resolved as part of the TCP connection.")
                     self.log(.tcp, .passed, "TCP connected. No pairing protocol was sent to this service.")
-                    self.log(.initiation, .notAttempted, service == .remotePairing ? "This regular Remote Pairing endpoint requires a saved record. For an iPhone or iPad, use Pair with iPhone / iPad on Devices and start pairing from the other device's Paired Macs screen (iOS 27+). Apple TV uses its separate Manual Remote Pairing service." : "Lockdown and RSD advertisements are not interchangeable with RPPairing endpoints.")
+                    self.log(.initiation, .notAttempted, service == .remotePairing ? "This regular Remote Pairing endpoint requires a saved record. For an iPhone or iPad, use Pair with iPhone / iPad on Devices and start pairing from the other device's Paired Macs screen (iOS 27+). Apple TV uses its separate Manual Remote Pairing service." : service.discoveryOnly ? "This AirPlay/Companion endpoint provides discovery and a TCP test only. Use Apple's Manual Remote Pairing service to begin developer pairing; its port is separate." : "Lockdown and RSD advertisements are not interchangeable with RPPairing endpoints.")
                     try self.state.move(to: .finished); self.message = "TCP test completed. Authentication was not attempted."; return
                 }
                 let record = try await recordID.mapAsync { try await self.vault.record(id: $0) }
@@ -191,6 +197,7 @@ final class AppModel: ObservableObject {
         guard !busy && !processBusy else { return }
         finishPresentation(); busy = true; hosting = true; presentPairing = true; service = .pairableHost
         processResults = [:]; backboardResult = nil
+        selectedDeviceSymbol = "network"
         tcpOnly = false
         checks = [:]; state = PairingState(); information = DeviceInformation(); errorMessage = nil; lastSavedID = nil
         pin = ""; hostPIN = nil; stageStart = [:]; activeCheck = nil

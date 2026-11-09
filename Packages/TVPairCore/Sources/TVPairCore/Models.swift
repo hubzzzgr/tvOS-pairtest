@@ -21,7 +21,7 @@ public enum TVPairError: Error, LocalizedError, Equatable {
         case let .malformed(context): return "Unexpected protocol response: \(context)."
         case let .unsupported(context): return "Unsupported: \(context)."
         case let .rejected(code, retry): return "The device rejected pairing (code \(code))." + (retry.map { " Retry after \($0) seconds." } ?? "")
-        case let .developer(code): return "The paired device rejected the developer operation (code \(code)). Pairing and tunnel access do not guarantee permission to pause an App Store app."
+        case let .developer(code): return "The paired device rejected the developer operation (code \(code)). Pairing and tunnel access do not guarantee process-control permission."
         case .authentication: return "Cryptographic authentication failed. No authenticated session was accepted."
         case let .advertisement(code): return "The pairable-host advertisement failed (DNS-SD code \(code)). Browsing other services may still work. In LiveContainer, the host must allow _remotepairing-pairable-host._tcp and Local Network access for incoming iPhone pairing."
         case let .keychain(code): return "Keychain access failed (OSStatus \(code)). LiveContainer may restrict guest Keychain access. Protected file storage is available only with your explicit consent."
@@ -75,7 +75,10 @@ public enum ServiceKind: String, Codable, CaseIterable, Sendable {
     case lockdown = "_apple-mobdev2._tcp."
     case remoteDiscovery = "_remoted._tcp."
     case pairableHost = "_remotepairing-pairable-host._tcp."
-    public static var browsed: [ServiceKind] { [.remotePairing, .manualPairing, .lockdown, .remoteDiscovery] }
+    case airPlay = "_airplay._tcp."
+    case companion = "_companion-link._tcp."
+    public static var browsed: [ServiceKind] { [.remotePairing, .manualPairing, .lockdown, .remoteDiscovery, .airPlay, .companion] }
+    public var discoveryOnly: Bool { self == .airPlay || self == .companion }
     public init?(bonjourType: String) {
         let normalized = bonjourType.hasSuffix(".") ? bonjourType : bonjourType + "."
         self.init(rawValue: normalized)
@@ -89,7 +92,47 @@ public enum ServiceKind: String, Codable, CaseIterable, Sendable {
         case .lockdown: return "Lockdown advertisement"
         case .remoteDiscovery: return "Remote Service Discovery"
         case .pairableHost: return "Pairable host"
+        case .airPlay: return "AirPlay • discovery only"
+        case .companion: return "Companion • discovery only"
         }
+    }
+}
+
+/// A presentation hint only. Neither names nor Bonjour TXT authenticate a peer.
+public enum DeviceFamily: String, Sendable {
+    case iPhone = "iPhone", iPad = "iPad", appleTV = "Apple TV", mac = "Mac"
+    case homePod = "HomePod", watch = "Apple Watch", vision = "Apple Vision", unknown = "Unknown device"
+    public var systemImage: String {
+        switch self {
+        case .iPhone: return "iphone"
+        case .iPad: return "ipad"
+        case .appleTV: return "appletv.fill"
+        case .mac: return "desktopcomputer"
+        case .homePod: return "homepod"
+        case .watch: return "applewatch"
+        case .vision: return "visionpro"
+        case .unknown: return "network"
+        }
+    }
+    public static func model(_ value: String?) -> Self {
+        guard let value = value?.lowercased() else { return .unknown }
+        if value.hasPrefix("iphone") || value.hasPrefix("ipod") { return .iPhone }
+        if value.hasPrefix("ipad") { return .iPad }
+        if value.hasPrefix("appletv") { return .appleTV }
+        if value.hasPrefix("mac") || value.hasPrefix("imac") { return .mac }
+        if value.hasPrefix("audioaccessory") || value.hasPrefix("homepod") { return .homePod }
+        if value.hasPrefix("watch") { return .watch }
+        if value.hasPrefix("realitydevice") || value.hasPrefix("vision") { return .vision }
+        return .unknown
+    }
+    public static func nameHint(_ value: String?) -> Self {
+        let tokens = (value ?? "").lowercased().split { !$0.isLetter && !$0.isNumber }.map(String.init)
+        if tokens.contains("iphone") || tokens.contains("ipod") { return .iPhone }
+        if tokens.contains("ipad") { return .iPad }
+        if tokens.contains("appletv") || zip(tokens, tokens.dropFirst()).contains(where: { $0.0 == "apple" && $0.1 == "tv" }) { return .appleTV }
+        if tokens.contains(where: { ["mac", "macbook", "imac"].contains($0) }) { return .mac }
+        if tokens.contains("homepod") { return .homePod }
+        return .unknown
     }
 }
 
@@ -108,9 +151,20 @@ public struct AppleTVDevice: Identifiable, Equatable, Sendable {
         let candidates = [hostname].compactMap { $0 } + addresses
         return candidates.lazy.compactMap { try? ConnectionEndpoint(host: $0, port: String(port)) }.first
     }
+    public var deviceFamily: DeviceFamily {
+        let model = DeviceFamily.model(advertisedModel)
+        if model != .unknown { return model }
+        let host = DeviceFamily.nameHint(hostname)
+        return host != .unknown ? host : DeviceFamily.nameHint(name)
+    }
+    public var systemImage: String {
+        if deviceFamily == .mac, advertisedModel?.lowercased().hasPrefix("macbook") == true { return "laptopcomputer" }
+        return deviceFamily.systemImage
+    }
     public var identityLabel: String {
-        if let model = advertisedModel, model.hasPrefix("AppleTV") { return "Advertised Apple TV • identity unverified" }
-        return "Device type unverified"
+        guard deviceFamily != .unknown else { return "Device type unknown • unauthenticated" }
+        let source = DeviceFamily.model(advertisedModel) != .unknown ? "Advertised model" : "Name hint"
+        return "\(deviceFamily.rawValue) • \(source.lowercased()) • unauthenticated"
     }
     public init(id: String, name: String, service: ServiceKind, hostname: String? = nil, addresses: [String] = [], port: Int = 0, advertisedModel: String? = nil, resolutionError: Bool = false) {
         self.id = id; self.name = name; self.service = service; self.hostname = hostname

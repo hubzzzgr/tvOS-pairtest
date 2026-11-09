@@ -13,7 +13,7 @@ struct PairingView: View {
                     VStack(spacing: 18) {
                         ZStack {
                             Circle().fill(.cyan.opacity(0.1)).frame(width: 112, height: 112)
-                            Image(systemName: model.fullSuccess ? "checkmark.shield.fill" : model.tcpOnly ? "network" : "appletv.fill").font(.system(size: 47)).foregroundStyle(model.fullSuccess || (model.tcpOnly && model.stage == .finished) ? .green : .cyan)
+                            Image(systemName: model.fullSuccess ? "checkmark.shield.fill" : model.connectionSystemImage).font(.system(size: 47)).foregroundStyle(model.fullSuccess || (model.tcpOnly && model.stage == .finished) ? .green : .cyan)
                         }
                         Text(model.summary).font(.title2.bold()).multilineTextAlignment(.center)
                         Text(model.message).font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)

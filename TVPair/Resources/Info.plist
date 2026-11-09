@@ -8,15 +8,17 @@
     <key>CFBundleName</key><string>$(PRODUCT_NAME)</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleShortVersionString</key><string>1.0</string>
-    <key>CFBundleVersion</key><string>7</string>
+    <key>CFBundleVersion</key><string>8</string>
     <key>LSRequiresIPhoneOS</key><true/>
-    <key>NSLocalNetworkUsageDescription</key><string>TVPair discovers Apple TV developer pairing services and tests authenticated connections over your local network.</string>
+    <key>NSLocalNetworkUsageDescription</key><string>TVPair discovers Apple devices and their pairing, AirPlay and Companion services on your local network, then tests connections you select.</string>
     <key>NSBonjourServices</key><array>
         <string>_remotepairing._tcp</string>
         <string>_remotepairing-manual-pairing._tcp</string>
         <string>_apple-mobdev2._tcp</string>
         <string>_remoted._tcp</string>
         <string>_remotepairing-pairable-host._tcp</string>
+        <string>_airplay._tcp</string>
+        <string>_companion-link._tcp</string>
     </array>
     <key>UIApplicationSceneManifest</key><dict><key>UIApplicationSupportsMultipleScenes</key><false/></dict>
     <key>UILaunchScreen</key><dict/>

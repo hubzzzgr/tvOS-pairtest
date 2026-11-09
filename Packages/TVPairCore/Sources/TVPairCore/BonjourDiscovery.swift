@@ -105,7 +105,7 @@ public final class BonjourDiscovery: NSObject, ObservableObject, @preconcurrency
         device.addresses = Array(Set((service.addresses ?? []).compactMap(Self.numericAddress))).sorted()
         if let txt = service.txtRecordData() {
             let values = NetService.dictionary(fromTXTRecord: txt)
-            device.advertisedModel = ["model", "deviceModel", "modelName"].compactMap { values[$0].flatMap { String(data: $0, encoding: .utf8) } }.first.map(displayText)
+            device.advertisedModel = ["model", "deviceModel", "modelName", "rpmd", "am"].compactMap { values[$0].flatMap { String(data: $0, encoding: .utf8) } }.first.map(displayText)
             device.advertisedIdentifier = values["identifier"].flatMap { String(data: $0, encoding: .utf8) }
             device.authenticationTag = values["authTag"].flatMap { String(data: $0, encoding: .utf8) }
         }

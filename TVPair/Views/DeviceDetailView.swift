@@ -11,7 +11,7 @@ struct DeviceDetailView: View {
             if let device {
                 Section {
                     VStack(spacing: 14) {
-                        Image(systemName: "appletv.fill").font(.system(size: 64)).foregroundStyle(.cyan)
+                        Image(systemName: device.systemImage).font(.system(size: 64)).foregroundStyle(.cyan)
                         Text(device.name).font(.title2.bold())
                         Text(device.identityLabel).font(.caption).foregroundStyle(.secondary)
                     }.frame(maxWidth: .infinity).padding(.vertical, 22)
@@ -25,6 +25,11 @@ struct DeviceDetailView: View {
                     DetailRow(title: "Status", value: "Discovered • unauthenticated")
                 }
                 Section {
+                    if device.deviceFamily == .appleTV || (device.service.discoveryOnly && device.deviceFamily == .unknown) {
+                        NavigationLink { AppleTVSetupView(discovery: discovery, initialHost: device.hostname ?? device.addresses.first ?? "") } label: {
+                            Label("Apple TV developer pairing setup", systemImage: "appletv")
+                        }
+                    }
                     Button {
                         if let endpoint = device.endpoint { model.start(endpoint: endpoint, service: device.service, discovered: true) }
                     } label: { Label(device.service.supportsNewPairing ? "Pair with this Apple TV" : "Test TCP connection", systemImage: "link") }
@@ -36,7 +41,7 @@ struct DeviceDetailView: View {
                             } }
                         } label: { Label("Reconnect with saved record", systemImage: "key.horizontal") }.disabled(device.endpoint == nil || model.busy)
                     }
-                } footer: { Text(device.service == .remotePairing ? "This regular endpoint is for an existing pairing record. For a new iPhone/iPad pairing, use Pair with iPhone / iPad on Devices (iOS 27+). For Apple TV, open Remote App and Devices and select its separate Manual Remote Pairing service." : "Apple TV manual pairing displays a code on the TV. The regular Remote Pairing endpoint is used afterward with the saved record.") }
+                } footer: { Text(device.service.discoveryOnly ? "This is a discovery endpoint, not an RPPairing endpoint. A TCP test sends no pairing protocol. Find a separate Manual Remote Pairing advertisement to pair an Apple TV." : device.service == .remotePairing ? "This regular endpoint is for an existing pairing record. For a new iPhone/iPad pairing, use Pair with iPhone / iPad on Devices (iOS 27+). For Apple TV, open Remote App and Devices and select its separate Manual Remote Pairing service." : "Apple TV manual pairing displays a code on the TV. The regular Remote Pairing endpoint is used afterward with the saved record.") }
             } else {
                 ContentUnavailableView("Service no longer available", systemImage: "wifi.slash", description: Text("Return to Devices and wait for a current advertisement. Start scanning again if it was stopped."))
             }
@@ -54,6 +59,70 @@ struct DetailRow: View {
             Spacer(minLength: 8)
             Text(value ?? "Unavailable").multilineTextAlignment(.trailing).textSelection(.enabled)
         }.font(.subheadline).padding(.vertical, 2)
+    }
+}
+
+struct AppleTVSetupView: View {
+    @EnvironmentObject private var model: AppModel
+    @ObservedObject var discovery: BonjourDiscovery
+    var initialHost = ""
+    @State private var manual = false
+    @State private var copied = false
+    private var pairingServices: [AppleTVDevice] { discovery.devices.filter { $0.service == .manualPairing } }
+    var body: some View {
+        List {
+            Section("Prepare the TV") {
+                Label("Keep the TV awake on the same local network.", systemImage: "wifi")
+                Text("On Apple TV, open Settings → Remotes and Devices → Remote App and Devices. Keep this screen open while scanning and pairing.")
+                Text("tvOS has no separate Developer Mode switch. Apple documents that Developer Settings appear after pairing. TVPair attempts the developer pairing exchange directly when the TV exposes it; there is no remote Developer Mode switch to turn on first.").font(.footnote).foregroundStyle(.secondary)
+                Link("Apple's Developer Mode documentation", destination: URL(string: "https://developer.apple.com/documentation/xcode/enabling-developer-mode-on-a-device")!)
+            }
+            Section("Find the developer pairing service") {
+                Button(discovery.scanning ? "Restart service scan" : "Scan for services") { discovery.start() }.disabled(model.busy)
+                if let message = discovery.discoveryMessage {
+                    Text(message).font(.footnote).foregroundStyle(.orange)
+                }
+                if pairingServices.isEmpty {
+                    Text("No Manual Remote Pairing advertisement found yet.").foregroundStyle(.secondary)
+                }
+                ForEach(pairingServices) { device in
+                    Button {
+                        if let endpoint = device.endpoint { model.start(endpoint: endpoint, service: .manualPairing, discovered: true) }
+                    } label: {
+                        VStack(alignment: .leading, spacing: 5) {
+                            Label(device.name, systemImage: device.systemImage)
+                            Text(device.endpoint?.description ?? "Resolving…").font(.caption.monospaced()).foregroundStyle(.secondary)
+                        }
+                    }.disabled(device.endpoint == nil || model.busy || model.processBusy)
+                }
+            } footer: {
+                Text("TVPair requests the code only after a valid Apple TV handshake. Enter the code displayed on the TV when prompted. A discovered name or icon does not establish device identity.")
+            }
+            Section("If you see only AirPlay or Companion") {
+                Text("These services help locate the TV and its address, but their ports do not accept developer pairing. An open TCP port alone is insufficient.")
+                Button("Enter IP and actual pairing port…") { manual = true }.disabled(model.busy || model.processBusy)
+                Text("The manual port must come from this TV's Manual Remote Pairing advertisement. Port 49152 on another device is not a default for this TV. TVPair does not guess a port or reuse the AirPlay port.").font(.footnote).foregroundStyle(.secondary)
+            }
+            Section("LiveContainer configuration") {
+                Text("Error -72008 means required Bonjour configuration is missing. Scanning one service can work while another is unavailable. TVPair declares its service types, but the installed LiveContainer host must also permit them. A guest update cannot change the installed host's declarations.").font(.footnote)
+                DisclosureGroup("Required Bonjour service names") {
+                    ForEach(ServiceKind.browsed + [.pairableHost], id: \.self) { kind in
+                        Text(String(kind.rawValue.dropLast())).font(.caption.monospaced()).textSelection(.enabled)
+                    }
+                    Button(copied ? "Service names copied" : "Copy service names") {
+                        UIPasteboard.general.string = (ServiceKind.browsed + [.pairableHost]).map { String($0.rawValue.dropLast()) }.joined(separator: "\n")
+                        copied = true
+                    }
+                    Text("These names belong in the host's NSBonjourServices list alongside its existing entries. NSLocalNetworkUsageDescription is also required. Changing Local Network permission alone does not add missing declarations.").font(.footnote).foregroundStyle(.secondary)
+                }
+                Text("Use a host build declaring the missing services, or run TVPair as a standalone signed app. Then rescan with the TV's pairing screen open. This does not enable a service the TV itself is not advertising.").font(.footnote).foregroundStyle(.secondary)
+            }
+            Section("Other iPhones and iPads") {
+                Text("This scan lists supported advertisements, not every device on Wi-Fi. An iPad with no supported service enabled may remain absent. AirPlay/Companion discovery does not require developer pairing, but does not grant developer access.").font(.footnote).foregroundStyle(.secondary)
+            }
+        }
+        .navigationTitle("Apple TV setup").navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $manual) { ManualConnectionView(initialHost: initialHost) }
     }
 }
 
