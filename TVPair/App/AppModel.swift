@@ -29,6 +29,11 @@ final class AppModel: ObservableObject {
     @Published private(set) var processBusy = false
     @Published private(set) var processResults: [ProcessTestApp: String] = [:]
     @Published private(set) var backboardResult: String?
+    @Published private(set) var activationBusy = false
+    @Published private(set) var activationMessage: String?
+    private var activationTask: Task<Void, Never>?
+    private var activationToken: UUID?
+    private var directProbe: DirectPairingProbe?
     private var developerConnection: DeveloperConnection?
     private var processOperation: Task<Void, Never>?
     var canTestProcesses: Bool { !busy && !processBusy && information.instrumentsServiceResponded && developerConnection != nil }
@@ -122,9 +127,44 @@ final class AppModel: ObservableObject {
             throw TVPairError.unsupported("this host and port are currently advertised as \(other.service.title), not Remote Pairing. Use Test TCP connection on that service's details page. For Apple TV developer pairing, select its separate Manual Remote Pairing advertisement and port")
         }
     }
-    func start(endpoint: ConnectionEndpoint, service: ServiceKind, discovered: Bool, recordID: UUID? = nil, deviceID: String? = nil) {
+    func enableAppleTVDeveloperAccess(host: String) {
         guard !busy && !processBusy else { return }
-        do { try validatePairingEndpoint(endpoint, service: service) }
+        finishPresentation()
+        let probe: DirectPairingProbe
+        do { probe = try DirectPairingProbe(host: host) }
+        catch { activationMessage = TVPairError.safe(error).localizedDescription; return }
+        let token = UUID(); activationToken = token; directProbe = probe
+        busy = true; activationBusy = true
+        activationMessage = "Asking the selected TV directly for its developer pairing endpoint…"
+        activationTask = Task { [weak self] in
+            guard let self else { return }
+            let began = Date()
+            defer {
+                if self.activationToken == token {
+                    self.busy = false; self.activationBusy = false; self.activationToken = nil
+                    self.activationTask = nil; self.directProbe = nil
+                }
+            }
+            do {
+                let endpoint = try await probe.resolve(.manualPairing)
+                try Task.checkCancellation()
+                self.append(DiagnosticEvent(operation: .discovery, service: .manualPairing, result: .passed, message: "Direct DNS-SD returned a developer pairing endpoint from the selected IP. Device identity is not authenticated.", duration: Date().timeIntervalSince(began)))
+                self.activationMessage = "Pairing endpoint found. Waiting for the Apple TV code exchange; developer access is not yet verified."
+                self.activationToken = nil; self.activationTask = nil; self.directProbe = nil
+                self.busy = false; self.activationBusy = false
+                self.start(endpoint: endpoint, service: .manualPairing, discovered: false, activationHost: endpoint.host)
+            } catch {
+                let safe = TVPairError.safe(error)
+                self.activationMessage = safe == .timeout
+                    ? "The selected TV did not answer the direct DNS query. Keep Remote App and Devices open on it, check the IP, and retry. No developer activation or pairing request was sent."
+                    : safe == .cancelled || Task.isCancelled ? "Developer setup cancelled." : safe.localizedDescription
+                self.append(DiagnosticEvent(operation: .discovery, service: .manualPairing, result: Task.isCancelled ? .cancelled : .failed, message: self.activationMessage ?? "Direct developer lookup failed.", duration: Date().timeIntervalSince(began), failure: safe))
+            }
+        }
+    }
+    func start(endpoint: ConnectionEndpoint, service: ServiceKind, discovered: Bool, recordID: UUID? = nil, deviceID: String? = nil, activationHost: String? = nil) {
+        guard !busy && !processBusy else { return }
+        do { if activationHost == nil { try validatePairingEndpoint(endpoint, service: service) } }
         catch { errorMessage = TVPairError.safe(error).localizedDescription; return }
         let selected = discovery.devices.first { device in
             device.service == service && (deviceID.map { device.id == $0 } ?? (discovered && device.endpoint == endpoint))
@@ -138,10 +178,11 @@ final class AppModel: ObservableObject {
         busy = true; presentPairing = true; self.service = service; checks = [:]; state = PairingState()
         tcpOnly = !service.supportsPairing || (recordID == nil && !service.supportsNewPairing)
         information = DeviceInformation(); errorMessage = nil; lastSavedID = nil; pin = ""; started = Date(); stageStart = [:]; activeCheck = nil
-        log(.discovery, discovered ? .passed : .blocked, discovered ? "Selected a currently discovered service." : "Manual endpoint; Bonjour discovery was bypassed.")
+        log(.discovery, discovered || activationHost != nil ? .passed : .blocked, activationHost != nil ? "Selected a fresh direct DNS-SD pairing answer from the chosen TV. It remains unauthenticated until the code exchange completes." : discovered ? "Selected a currently discovered service." : "Manual endpoint; Bonjour discovery was bypassed.")
         operation = Task { [weak self] in
             guard let self else { return }
             defer {
+                self.directProbe?.cancel(); self.directProbe = nil
                 if self.developerConnection == nil { self.activeTransport?.cancel() }
                 self.activeTransport = nil; self.busy = false
                 self.pinContinuation?.resume(throwing: CancellationError()); self.pinContinuation = nil; self.pin = ""
@@ -189,7 +230,12 @@ final class AppModel: ObservableObject {
                     // Pair-Setup endpoints may close after M6. Prove saved-record reuse
                     // on a fresh connection before attempting any tunnel operation.
                     transport.cancel()
-                    if service == .manualPairing, let regular = self.discovery.devices.first(where: {
+                    if let activationHost {
+                        self.log(.tunnel, .running, "Pairing authenticated. Resolving the same TV's regular developer endpoint directly before pinned peer verification.")
+                        let probe = try DirectPairingProbe(host: activationHost); self.directProbe = probe
+                        trustedEndpoint = try await probe.resolve(.remotePairing)
+                        self.directProbe = nil; self.service = .remotePairing
+                    } else if service == .manualPairing, let regular = self.discovery.devices.first(where: {
                         $0.service == .remotePairing && $0.endpoint != nil && AdvertisementIdentity.matches(record: authenticated, identifier: $0.advertisedIdentifier, authTag: $0.authenticationTag)
                     }), let resolved = regular.endpoint {
                         trustedEndpoint = resolved; self.service = .remotePairing
@@ -212,11 +258,15 @@ final class AppModel: ObservableObject {
                 self.information = try await developer.inspect(report: reporter, updateInformation: { [weak self] value in await self?.receiveInformation(value) })
                 try Task.checkCancellation(); try self.state.move(to: .finished)
                 self.message = self.fullSuccess ? "Authentication, trusted tunnel, and a read-only developer-service request succeeded." : "The authenticated tunnel succeeded. Review the independent checks for developer-service limitations."
+                if activationHost != nil {
+                    self.activationMessage = self.fullSuccess ? "Developer access verified: the TV accepted pairing, the trusted tunnel opened, and a developer service responded." : "Pairing and the tunnel succeeded. Developer-service availability is not fully verified; review the independent checks."
+                }
             } catch {
                 let safe = TVPairError.safe(error), cancelled = safe == .cancelled || Task.isCancelled
                 let failed = self.activeCheck ?? (self.state.authenticated ? .tunnel : .authentication)
                 try? self.state.move(to: cancelled ? .cancelled : .failed)
                 self.errorMessage = cancelled ? nil : safe.localizedDescription; self.message = cancelled ? "The connection attempt was cancelled." : safe.localizedDescription
+                if activationHost != nil { self.activationMessage = self.state.authenticated ? "The TV accepted pairing, but developer access is not verified. " + self.message : self.message }
                 self.log(failed, cancelled ? .cancelled : .failed, self.message, failure: safe)
             }
         }
@@ -373,7 +423,7 @@ final class AppModel: ObservableObject {
         guard pin.count == 6, pin.allSatisfy({ $0.isASCII && $0.isNumber }) else { return }
         let code = pin; pin = ""; pinContinuation?.resume(returning: code); pinContinuation = nil; pinRequestID = nil
     }
-    func cancel() { operation?.cancel(); processOperation?.cancel(); developerConnection?.cancel(); developerConnection = nil; activeTransport?.cancel(); hostListener?.stop(); hostPIN = nil; cancelPIN() }
+    func cancel() { activationTask?.cancel(); directProbe?.cancel(); operation?.cancel(); processOperation?.cancel(); developerConnection?.cancel(); developerConnection = nil; activeTransport?.cancel(); hostListener?.stop(); hostPIN = nil; cancelPIN() }
     func importRecord(_ url: URL) async {
         guard !busy else { return }
         let scoped = url.startAccessingSecurityScopedResource(); defer { if scoped { url.stopAccessingSecurityScopedResource() } }

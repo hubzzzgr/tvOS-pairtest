@@ -26,8 +26,8 @@ struct DeviceDetailView: View {
                 }
                 Section {
                     if device.deviceFamily == .appleTV || (device.service.discoveryOnly && device.deviceFamily == .unknown) {
-                        NavigationLink { AppleTVSetupView(discovery: discovery, initialHost: device.hostname ?? device.addresses.first ?? "") } label: {
-                            Label("Apple TV developer pairing setup", systemImage: "appletv")
+                        NavigationLink { AppleTVSetupView(discovery: discovery, initialHost: device.addresses.first(where: { !$0.contains(":") }) ?? device.addresses.first ?? "") } label: {
+                            Label("Enable Apple TV developer access", systemImage: "appletv")
                         }
                     }
                     Button {
@@ -79,14 +79,28 @@ struct AppleTVSetupView: View {
     @ObservedObject var discovery: BonjourDiscovery
     var initialHost = ""
     @State private var manual = false
-    @State private var copied = false
+    @State private var developerIP = ""
     private var pairingServices: [AppleTVDevice] { discovery.devices.filter { $0.service == .manualPairing } }
     var body: some View {
         List {
+            Section {
+                TextField("Apple TV IP address", text: $developerIP).textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
+                    .disabled(model.busy || model.processBusy)
+                Button { model.enableAppleTVDeveloperAccess(host: developerIP) } label: {
+                    Label("Enable developer access", systemImage: "hammer")
+                }.disabled(model.busy || model.processBusy || developerIP.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                if model.activationBusy {
+                    ProgressView("Contacting the selected TV…")
+                    Button("Cancel developer setup", role: .cancel) { model.cancel() }
+                }
+                if let status = model.activationMessage { Text(status).font(.footnote).foregroundStyle(.secondary).textSelection(.enabled) }
+            } header: { Text("Developer setup from this phone") } footer: {
+                Text("Requests developer trust through the TV's displayed code, then verifies the tunnel and developer service. The IP can be taken from the TV's AirPlay or Companion discovery row; its port is resolved separately. Keep the TV on its pairing screen. Approval and code entry are required.")
+            }
             Section("Prepare the TV") {
                 Label("Keep the TV awake on the same local network.", systemImage: "wifi")
                 Text("On Apple TV, open Settings → Remotes and Devices → Remote App and Devices. Keep this screen open while scanning and pairing.")
-                Text("tvOS has no separate Developer Mode switch. Apple documents that Developer Settings appear after pairing. TVPair attempts the developer pairing exchange directly when the TV exposes it; there is no remote Developer Mode switch to turn on first.").font(.footnote).foregroundStyle(.secondary)
+                Text("Developer setup establishes trust with this phone acting as a developer host. Developer Settings visibility on the TV is not treated as verified until you check it; TVPair verifies access with an actual developer-service request.").font(.footnote).foregroundStyle(.secondary)
                 Link("Apple's Developer Mode documentation", destination: URL(string: "https://developer.apple.com/documentation/xcode/enabling-developer-mode-on-a-device")!)
             }
             Section {
@@ -115,25 +129,15 @@ struct AppleTVSetupView: View {
                 Button("Enter IP and actual pairing port…") { manual = true }.disabled(model.busy || model.processBusy)
                 Text("The manual port must come from this TV's Manual Remote Pairing advertisement. Port 49152 on another device is not a default for this TV. TVPair does not guess a port or reuse the AirPlay port.").font(.footnote).foregroundStyle(.secondary)
             }
-            Section("LiveContainer configuration") {
-                Text("Error -72008 means required Bonjour configuration is missing. Scanning one service can work while another is unavailable. TVPair declares its service types, but the installed LiveContainer host must also permit them. A guest update cannot change the installed host's declarations.").font(.footnote)
-                DisclosureGroup("Required Bonjour service names") {
-                    ForEach(ServiceKind.browsed + [.pairableHost], id: \.self) { kind in
-                        Text(String(kind.rawValue.dropLast())).font(.caption.monospaced()).textSelection(.enabled)
-                    }
-                    Button(copied ? "Service names copied" : "Copy service names") {
-                        UIPasteboard.general.string = (ServiceKind.browsed + [.pairableHost]).map { String($0.rawValue.dropLast()) }.joined(separator: "\n")
-                        copied = true
-                    }
-                    Text("These names belong in the host's NSBonjourServices list alongside its existing entries. NSLocalNetworkUsageDescription is also required. Changing Local Network permission alone does not add missing declarations.").font(.footnote).foregroundStyle(.secondary)
-                }
-                Text("Use a host build declaring the missing services, or run TVPair as a standalone signed app. Then rescan with the TV's pairing screen open. This does not enable a service the TV itself is not advertising.").font(.footnote).foregroundStyle(.secondary)
+            Section("Direct setup in LiveContainer") {
+                Text("The action above sends a targeted DNS query to this TV and then connects to its returned pairing port. It does not modify or replace LiveContainer. Local Network access is still required. If the TV does not answer this query, setup stops; an open AirPlay port alone is not developer access.").font(.footnote).foregroundStyle(.secondary)
             }
             Section("Other iPhones and iPads") {
                 Text("This scan lists supported advertisements, not every device on Wi-Fi. An iPad with no supported service enabled may remain absent. AirPlay/Companion discovery does not require developer pairing, but does not grant developer access.").font(.footnote).foregroundStyle(.secondary)
             }
         }
         .navigationTitle("Apple TV setup").navigationBarTitleDisplayMode(.inline)
+        .onAppear { if developerIP.isEmpty { developerIP = initialHost } }
         .sheet(isPresented: $manual) { ManualConnectionView(initialHost: initialHost) }
     }
 }

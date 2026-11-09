@@ -58,7 +58,7 @@ struct HomeView: View {
                 }
             } header: { Text("Discovered services • \(discovery.devices.count)") } footer: { Text("Only devices advertising supported Bonjour services can appear; this is not a list of every device on Wi-Fi. A device can advertise multiple endpoints. AirPlay and Companion can reveal devices without developer services, but cannot be used for developer pairing.") }
             Section("Connect directly") {
-                NavigationLink { AppleTVSetupView(discovery: discovery) } label: { Label("Set up Apple TV pairing", systemImage: "appletv") }
+                NavigationLink { AppleTVSetupView(discovery: discovery) } label: { Label("Enable Apple TV developer access", systemImage: "appletv") }
                 Button { manual = true } label: { Label("Enter IP address or hostname", systemImage: "network") }
             }
             Section {

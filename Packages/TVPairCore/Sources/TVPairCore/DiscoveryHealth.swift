@@ -21,7 +21,7 @@ public struct DiscoveryHealth: Sendable {
         let missing = failures.filter { $0.value == -72008 }.keys.sorted { $0.rawValue < $1.rawValue }
         if !missing.isEmpty {
             let types = missing.map(\.rawValue).joined(separator: ", ")
-            return "Missing Bonjour configuration (-72008) for: \(types). TVPair declares these services, but in LiveContainer the host must declare them too. Other services can still appear. This is not evidence that Developer Mode is off on the target."
+            return "Missing Bonjour configuration (-72008) for: \(types). This affects the system browser; other services can still appear. For Apple TV, try Enable developer access with its IP to perform a direct lookup. This error does not report the TV's developer state."
         }
         let details = failures.keys.sorted { $0.rawValue < $1.rawValue }.map { "\($0.title) (DNS-SD \(failures[$0]!))" }.joined(separator: "; ")
         if active.isEmpty && observed.isEmpty {

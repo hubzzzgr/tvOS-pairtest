@@ -23,6 +23,6 @@ final class DiscoveryHealthTests: XCTestCase {
     func testPreviouslyObservedServiceStillDisprovesBlanketDenialAfterSearchStops() {
         var health = DiscoveryHealth(); health.begin(); health.found(.remotePairing)
         for kind in ServiceKind.browsed { health.failed(kind, code: -72008) }
-        XCTAssertFalse(health.isScanning); XCTAssertTrue(health.message?.contains("Other services can still appear") == true); XCTAssertFalse(health.offerSettings)
+        XCTAssertFalse(health.isScanning); XCTAssertTrue(health.message?.contains("other services can still appear") == true); XCTAssertFalse(health.offerSettings)
     }
 }
