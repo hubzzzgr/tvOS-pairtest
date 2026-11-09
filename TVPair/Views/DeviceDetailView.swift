@@ -77,7 +77,7 @@ struct AppleTVSetupView: View {
                 Text("tvOS has no separate Developer Mode switch. Apple documents that Developer Settings appear after pairing. TVPair attempts the developer pairing exchange directly when the TV exposes it; there is no remote Developer Mode switch to turn on first.").font(.footnote).foregroundStyle(.secondary)
                 Link("Apple's Developer Mode documentation", destination: URL(string: "https://developer.apple.com/documentation/xcode/enabling-developer-mode-on-a-device")!)
             }
-            Section("Find the developer pairing service") {
+            Section {
                 Button(discovery.scanning ? "Restart service scan" : "Scan for services") { discovery.start() }.disabled(model.busy)
                 if let message = discovery.discoveryMessage {
                     Text(message).font(.footnote).foregroundStyle(.orange)
@@ -95,7 +95,7 @@ struct AppleTVSetupView: View {
                         }
                     }.disabled(device.endpoint == nil || model.busy || model.processBusy)
                 }
-            } footer: {
+            } header: { Text("Find the developer pairing service") } footer: {
                 Text("TVPair requests the code only after a valid Apple TV handshake. Enter the code displayed on the TV when prompted. A discovered name or icon does not establish device identity.")
             }
             Section("If you see only AirPlay or Companion") {
